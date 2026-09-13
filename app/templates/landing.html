@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Round {{ round_id }}{% endblock %}
+
+{% block content %}
+<h1>Round {{ round_id }}</h1>
+<p class="sub">
+  Pick a subject to review. Your ballot link is the resume handle — there is no
+  login, and closing the tab keeps your place.
+</p>
+
+{% if freeze %}
+  <div class="notice">
+    Round frozen {{ freeze.frozen_at }} · {{ freeze.ballot_n }} ballots ·
+    digest <code>{{ freeze.digest[:16] }}…</code>
+    <br><span class="muted">Later submissions still count; re-freeze to refresh the digest.</span>
+  </div>
+{% endif %}
+
+<div class="card">
+  <div class="scroll">
+  <table>
+    <thead>
+      <tr><th>Subject</th><th>Cohort</th><th>Responses</th><th>Self</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for s in subjects %}
+      <tr>
+        <td>
+          <strong>{{ s.display_name }}</strong>
+          <div class="muted" style="font-size:.85em">{{ s.role }}</div>
+        </td>
+        <td>{{ s.cohort }}</td>
+        <td>
+          {% if s.publishable %}
+            <span class="pill ok">{{ s.n_ballots }} / {{ s.min_n }}</span>
+          {% else %}
+            <span class="pill bad">{{ s.n_ballots }} / {{ s.min_n }}</span>
+          {% endif %}
+          {% if s.n_open %}<span class="pill">{{ s.n_open }} in progress</span>{% endif %}
+          {% if not s.publishable %}
+            <div class="muted" style="font-size:.82em">
+              {{ s.needed }} more to clear min_n
+            </div>
+          {% endif %}
+        </td>
+        <td>
+          {% if s.self.complete %}
+            <span class="pill ok">complete</span>
+          {% elif s.self.started %}
+            <span class="pill">in progress · {{ s.self.progress }}</span>
+          {% else %}
+            <span class="pill">not started</span>
+          {% endif %}
+        </td>
+        <td style="white-space:nowrap">
+          <form class="inline" method="post" action="/start">
+            <input type="hidden" name="subject_id" value="{{ s.subject_id }}">
+            <button class="primary" type="submit">Review</button>
+          </form>
+          <a class="btn" href="/self/{{ s.subject_id }}">Self</a>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="muted" style="font-size:.85em; margin-bottom:0">
+    <code>min_n = {{ subjects[0].min_n if subjects else 2 }}</code> — below it a cell is
+    suppressed and the report says so rather than showing a blank. A subject sitting
+    under the threshold is the rule working, not a failure.
+  </p>
+</div>
+
+{% if role == 'hr_admin' %}
+  <p><a href="/admin">Round dashboard, reports and exports →</a></p>
+{% else %}
+  <p class="muted">Switch to <strong>HR / Admin</strong> in the header to see reports.</p>
+{% endif %}
+{% endblock %}

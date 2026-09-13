@@ -1,0 +1,16 @@
+# Keep the build context to what the image actually uses. The Dockerfile COPYs
+# poc/, app/ and inputs/ explicitly, so this is about speed and hygiene rather
+# than security — but excluding .env here is belt-and-braces in case a future
+# `COPY . .` ever creeps in.
+.env
+.venv360/
+.git/
+.pytest_cache/
+__pycache__/
+*.pyc
+.DS_Store
+data/
+docs/
+tests/
+coverage/
+*.docx

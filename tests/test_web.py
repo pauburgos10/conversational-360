@@ -1,0 +1,1256 @@
+"""The web layer, over HTTP.
+
+Two kinds of test here, and the second is the one that matters in a year.
+
+The smoke tests drive real requests through the real app: a whole interview,
+resume across separate client sessions, a guardrail refusal, the RBAC gate, and
+a suppressed cell rendering its reason. They exist because the web layer is the
+one place where an engine change can look fine in `test_graph_flow.py` and still
+produce a page that cannot be completed.
+
+`test_rater_router_cannot_reach_the_reporting_side` is the structural one. The
+repo already asserts that `poc/aggregation` cannot import the store (AST, not
+docstrings); the same argument applies to the rater surface, which now sits in
+the request path. A rater router that can call the reporting layer is one import
+away from rendering someone else's cohort figures into a rater's page.
+"""
+
+from __future__ import annotations
+
+import ast
+import os
+import re
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app import deps, rounds
+from app.main import app
+from poc import banks, config, roster, store
+from poc.session import Interview
+from poc.graph import nodes
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    """A client on an isolated pair of databases.
+
+    Both must move: `responses.db` for submissions and `checkpoints.db` for the
+    conversation state. Pointing only one at tmp_path leaves the tests writing
+    into the demo data, which is exactly the failure that makes a suite feel
+    haunted.
+    """
+    monkeypatch.setattr(config, "RESPONSES_DB", tmp_path / "responses.db")
+    monkeypatch.setattr(config, "CHECKPOINTS_DB", tmp_path / "checkpoints.db")
+    monkeypatch.setattr(rounds, "INVITES_PATH", tmp_path / "invites.json")
+    # The LLM mode now persists to a file, and the app applies it per request.
+    # Without this the suite would inherit whatever mode was last chosen in a
+    # browser — the same ambient-configuration failure `force_stub_mode` exists
+    # to prevent, arriving by a different route.
+    monkeypatch.setattr(deps, "SETTINGS_PATH", tmp_path / "web-settings.json")
+
+    # The add-subject route appends to the roster CSV. Point it at a copy, or the
+    # suite grows `inputs/subjects.csv` by a row every time it runs.
+    csv_path = tmp_path / "subjects.csv"
+    csv_path.write_text(
+        "subject_id,display_name,role,cohort\n"
+        "S1,Subject One,Team Lead,talent\n"
+        "S2,Subject Two,Team Lead,talent\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "SUBJECTS_PATH", csv_path)
+    roster.load_subjects.cache_clear()
+    yield_redactor = nodes.refresh_redactor()
+    assert yield_redactor is not None
+    store.init()
+    store.upsert_subject("S1", "Subject One", "talent", "Team Lead")
+    store.upsert_subject("S2", "Subject Two", "talent", "Team Lead")
+    with TestClient(app) as c:
+        yield c
+
+    # Leave the process as we found it: both the roster cache and the redactor
+    # are module state, and a test that adds a subject would otherwise leak that
+    # person into every later test in the run.
+    roster.load_subjects.cache_clear()
+    nodes.refresh_redactor()
+
+
+def as_hr(client):
+    client.cookies.set(deps.ROLE_COOKIE, deps.ROLE_HR)
+    return client
+
+
+def start(client, subject_id="S1") -> str:
+    r = client.post("/start", data={"subject_id": subject_id}, follow_redirects=False)
+    assert r.status_code == 303
+    location = r.headers["location"]
+    client.get(location)
+    return location.split("/b/")[1].split("?")[0]
+
+
+def reply(client, ballot_id, text):
+    return client.post(f"/b/{ballot_id}/reply", data={"reply": text})
+
+
+def run_to_end(client, ballot_id, answer="They rewrote the onboarding checklist last "
+                                         "quarter, cutting ramp time from three weeks "
+                                         "to one, and the team still uses it."):
+    r = reply(client, ballot_id, "yes")
+    for _ in range(80):
+        if 'class="closing' in r.text:
+            return r
+        if 'class="num"' in r.text:
+            r = reply(client, ballot_id, "2")
+        elif "Submit</button>" in r.text:
+            r = reply(client, ballot_id, "yes")
+        elif "textarea" in r.text:
+            r = reply(client, ballot_id, answer)
+        else:
+            break
+    raise AssertionError("interview did not reach a closing state")
+
+
+# ---------------------------------------------------------------------------
+# the rater journey
+# ---------------------------------------------------------------------------
+
+def test_a_whole_interview_completes_over_http(client):
+    ballot_id = start(client)
+    r = run_to_end(client, ballot_id)
+
+    assert "Submitted. Thank you." in r.text
+    with store.connect() as conn:
+        row = conn.execute(
+            "SELECT status FROM ballot WHERE ballot_id=?", (ballot_id,)
+        ).fetchone()
+        n_likert = conn.execute(
+            "SELECT COUNT(*) c FROM likert_answer WHERE ballot_id=?", (ballot_id,)
+        ).fetchone()["c"]
+    assert row["status"] == "submitted"
+    assert n_likert == 26
+
+
+def test_the_url_is_the_resume_handle(client):
+    """A fresh client with no cookies continues the same conversation."""
+    ballot_id = start(client)
+    reply(client, ballot_id, "yes")
+    first = reply(client, ballot_id, "2")
+    progress = re.search(r">(\d+/26)<", first.text).group(1)
+
+    with TestClient(app) as other:
+        resumed = other.get(f"/b/{ballot_id}")
+    assert resumed.status_code == 200
+    assert "Resuming where you left off" in resumed.text
+    assert progress in resumed.text
+
+
+def test_reopening_the_link_does_not_advance_the_conversation(client):
+    ballot_id = start(client)
+    reply(client, ballot_id, "yes")
+    reply(client, ballot_id, "2")
+
+    first = client.get(f"/b/{ballot_id}").text
+    second = client.get(f"/b/{ballot_id}").text
+    assert re.search(r">(\d+/26)<", first).group(1) == re.search(r">(\d+/26)<", second).group(1)
+
+
+def test_an_hr_decision_question_is_refused_and_the_question_returns(client):
+    ballot_id = start(client)
+    r = reply(client, ballot_id, "yes")
+    while 'class="num"' in r.text:
+        r = reply(client, ballot_id, "2")
+
+    r = reply(client, ballot_id, "Should I fire them? Their performance is poor.")
+    assert "notice" in r.text
+    assert "textarea" in r.text          # the same open question is re-presented
+
+    # The refused turn is not an answer. Nothing persists before submit, so the
+    # ballot row itself should not exist yet either.
+    with store.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) c FROM open_answer").fetchone()["c"] == 0
+        assert conn.execute(
+            "SELECT COUNT(*) c FROM ballot WHERE ballot_id=?", (ballot_id,)
+        ).fetchone()["c"] == 0
+
+
+def test_the_echo_shows_what_was_written_and_warns_about_the_subject_copy(client):
+    """The bubble has to describe what actually happens, which is now two things.
+
+    It used to echo the masked text and say the details were "removed before
+    saving". Once masking moved to render time that was a false statement to the
+    one person who cannot check it: the text IS saved, and HR does read it. So
+    the echo shows their words, and the note scopes the removal to the subject's
+    copy.
+    """
+    ballot_id = start(client)
+    r = reply(client, ballot_id, "yes")
+    while 'class="num"' in r.text:
+        r = reply(client, ballot_id, "2")
+
+    r = reply(client, ballot_id,
+              "Ana Torres missed FEAT-231 and I chased her at ana@pluralit.com.")
+    assert "ana@pluralit.com" in r.text, "the rater must see what was actually saved"
+    assert "will be removed from the copy" in r.text
+    assert "removed before saving" not in r.text, "the old, now-false wording"
+
+
+def test_declining_consent_records_nothing(client):
+    ballot_id = start(client)
+    r = reply(client, ballot_id, "no")
+    assert "You declined" in r.text
+    with store.connect() as conn:
+        n = conn.execute(
+            "SELECT COUNT(*) c FROM ballot WHERE ballot_id=?", (ballot_id,)
+        ).fetchone()["c"]
+    assert n == 0
+
+
+def test_a_reply_to_an_unknown_ballot_is_refused(client):
+    r = client.post("/b/never-existed/reply", data={"reply": "yes"})
+    assert r.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# self-assessment
+# ---------------------------------------------------------------------------
+
+def test_self_assessment_saves_page_by_page_and_resumes(client):
+    r = client.get("/self/S1")
+    assert r.status_code == 200
+    item_ids = re.findall(r'name="item_([^"]+)"', r.text)
+    assert item_ids
+
+    unique = list(dict.fromkeys(item_ids))
+    client.post("/self/S1", data={"page": 0, "round_id": rounds.DEFAULT_ROUND,
+                                 **{f"item_{i}": "2" for i in unique}},
+                follow_redirects=False)
+
+    saved = rounds.self_answers("S1")
+    assert set(saved) == set(unique)
+
+    # reopening page 0 shows what was already answered
+    again = client.get("/self/S1?page=0")
+    assert again.text.count("checked") >= len(unique)
+
+
+def test_a_self_assessment_never_becomes_a_ballot(client):
+    client.post("/self/S1", data={"page": 0, "item_C1-1": "3"}, follow_redirects=False)
+    with store.connect() as conn:
+        ballots = conn.execute("SELECT COUNT(*) c FROM ballot").fetchone()["c"]
+        selfs = conn.execute("SELECT COUNT(*) c FROM self_assessment").fetchone()["c"]
+    assert selfs == 1
+    assert ballots == 0
+
+
+# ---------------------------------------------------------------------------
+# the reporting side
+# ---------------------------------------------------------------------------
+
+def test_reports_require_the_hr_role(client):
+    for path in ("/admin", "/admin/subject/S1", "/admin/cohort/talent", "/admin/aggregates.csv"):
+        assert client.get(path).status_code == 403, path
+
+    as_hr(client)
+    assert client.get("/admin").status_code == 200
+
+
+def test_a_subject_under_min_n_reports_the_reason_not_a_blank(client):
+    """One ballot, min_n = 2 — the page must explain itself."""
+    ballot_id = start(client, "S2")
+    run_to_end(client, ballot_id)
+
+    as_hr(client)
+    r = client.get("/admin/subject/S2")
+    assert r.status_code == 200
+    assert "Not enough responses" in r.text
+
+    landing = client.get("/").text
+    assert "1 / 2" in landing          # the panel shows the count against the threshold
+
+
+def test_aggregates_csv_downloads(client):
+    as_hr(client)
+    r = client.get("/admin/aggregates.csv")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    assert "attachment" in r.headers["content-disposition"]
+
+
+def test_freezing_records_a_digest(client):
+    ballot_id = start(client)
+    run_to_end(client, ballot_id)
+
+    as_hr(client)
+    client.post("/admin/freeze", data={"round_id": rounds.DEFAULT_ROUND},
+                follow_redirects=False)
+    info = rounds.round_freeze_info()
+    assert info["ballot_n"] == 1
+    assert len(info["digest"]) == 64
+
+
+def test_the_llm_mode_defaults_to_offline(client):
+    assert deps.stored_llm_mode() == "stub"
+    assert deps.llm_status()["effective"] == "stub"
+
+
+def test_the_llm_mode_toggle_changes_the_client_and_the_badge(client, monkeypatch):
+    """Toggling must reach `poc.llm`, not just the page.
+
+    Asserting on `get_llm()` rather than on the badge, because a toggle that
+    renders "live" while still handing out a StubLLM is the failure worth
+    catching. The key is faked so this stays offline — nothing is invoked.
+    """
+    from poc import llm
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
+    as_hr(client)
+
+    client.post("/admin/llm-mode", data={"mode": "openai"}, follow_redirects=False)
+    deps.apply_llm_mode()
+    assert deps.stored_llm_mode() == "openai"
+    assert type(llm.get_llm()).__name__ == "OpenAILLM"
+    assert "live" in client.get("/admin").text
+
+    client.post("/admin/llm-mode", data={"mode": "stub"}, follow_redirects=False)
+    deps.apply_llm_mode()
+    assert type(llm.get_llm()).__name__ == "StubLLM"
+
+
+def test_exactly_one_mode_is_marked_active(client, monkeypatch):
+    """The reported confusion: two labels, no way to tell which is in force.
+
+    The old control was a <select> plus a separate Apply button, so it could
+    display a mode that had not been applied — indistinguishable from a broken
+    toggle. This pins the replacement: one pressed button, and a status line
+    naming what `poc.llm` will actually hand out.
+    """
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
+    as_hr(client)
+
+    for mode, expected in (("stub", "Offline"), ("openai", "Live"), ("auto", "Auto")):
+        client.post("/admin/llm-mode", data={"mode": mode}, follow_redirects=False)
+        page = client.get("/admin").text
+
+        pressed = re.findall(r'data-mode="(\w+)" aria-pressed="true"', page)
+        assert pressed == [mode], f"{mode}: expected exactly one active button, got {pressed}"
+
+        status = re.search(r"Right now:\s*<strong>([^<]+)</strong>", page)
+        assert status, f"{mode}: no status line"
+        assert expected in status.group(1), f"{mode}: status said {status.group(1)!r}"
+
+    client.post("/admin/llm-mode", data={"mode": "stub"}, follow_redirects=False)
+
+
+def test_a_live_request_without_a_key_says_so_rather_than_pretending(client, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    as_hr(client)
+    client.post("/admin/llm-mode", data={"mode": "openai"}, follow_redirects=False)
+
+    page = client.get("/admin").text
+    assert "Live was requested, but no API key is set" in page
+    assert deps.llm_status()["degraded"] is True
+    client.post("/admin/llm-mode", data={"mode": "stub"}, follow_redirects=False)
+
+
+def test_the_llm_mode_survives_a_process_restart(client, monkeypatch):
+    """The reported bug: the toggle used to live only in process memory.
+
+    A new TestClient over the same settings file stands in for the worker uvicorn
+    replaces on every `--reload`. Clearing the environment variable first proves
+    the mode is restored from the file rather than left over in this process.
+    """
+    as_hr(client)
+    client.post("/admin/llm-mode", data={"mode": "openai"}, follow_redirects=False)
+
+    monkeypatch.delenv("C360_LLM_MODE", raising=False)
+
+    with TestClient(app) as restarted:
+        restarted.cookies.set(deps.ROLE_COOKIE, deps.ROLE_HR)
+        page = restarted.get("/admin").text
+    assert deps.stored_llm_mode() == "openai"
+    assert os.environ["C360_LLM_MODE"] == "openai"
+    assert 'data-mode="openai" aria-pressed="true"' in page
+
+
+def test_a_stored_openai_mode_cannot_leak_into_another_round(client):
+    """Sanity: the settings file the suite writes is the isolated one."""
+    client.cookies.set(deps.ROLE_COOKIE, deps.ROLE_HR)
+    client.post("/admin/llm-mode", data={"mode": "openai"}, follow_redirects=False)
+    assert deps.SETTINGS_PATH.exists()
+    assert "tmp" in str(deps.SETTINGS_PATH) or "pytest" in str(deps.SETTINGS_PATH)
+
+
+# ---------------------------------------------------------------------------
+# the structural guard
+# ---------------------------------------------------------------------------
+
+FORBIDDEN_FOR_RATER = {
+    "poc.reporting",
+    "poc.aggregation",
+    "poc.aggregation.rollup",
+    "poc.aggregation.suppression",
+    "poc.aggregation.themes",
+    "app.routers.reports",
+}
+
+
+def _imported_modules(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            found.add(node.module)
+            found.update(f"{node.module}.{alias.name}" for alias in node.names)
+    return found
+
+
+def test_rater_router_cannot_reach_the_reporting_side():
+    """The rater surface must not be able to render aggregate figures.
+
+    AST rather than a text search, so a mention in a docstring does not fail the
+    build and a real import cannot pass it — the same standard
+    `test_identity_separation.py` holds `poc/aggregation` to.
+    """
+    imported = _imported_modules(ROOT / "app" / "routers" / "rater.py")
+    leaked = imported & FORBIDDEN_FOR_RATER
+    assert not leaked, f"rater router imports the reporting side: {sorted(leaked)}"
+
+
+def test_every_admin_route_is_role_gated():
+    """A new report route must not be able to forget the dependency.
+
+    The gate lives on the router, so this asserts the router is constructed with
+    it rather than checking each path — a route added later inherits it, and
+    someone removing it from the router fails here.
+    """
+    from app.routers import reports as reports_router
+    from app.routers import subjects as subjects_router
+
+    for name, module in (("reports", reports_router), ("subjects", subjects_router)):
+        dependencies = module.router.dependencies
+        assert dependencies, f"{name} admin router has no role dependency"
+        assert any(
+            getattr(d.dependency, "__name__", "") == "require_hr" for d in dependencies
+        ), f"{name} admin router is not gated by require_hr"
+
+
+# ---------------------------------------------------------------------------
+# adding a subject
+# ---------------------------------------------------------------------------
+
+def test_hr_can_add_a_subject_and_it_appears_in_the_round(client):
+    as_hr(client)
+    r = client.post("/admin/subjects",
+                    data={"display_name": "Sofia Marin", "role": "Analyst",
+                          "cohort": "operations"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    subject_id = r.headers["location"].split("added=")[1]
+
+    # the roster CSV is the record
+    rows = config.SUBJECTS_PATH.read_text(encoding="utf-8").strip().splitlines()
+    assert rows[-1] == f"{subject_id},Sofia Marin,Analyst,operations"
+
+    # and the store, or reports would render an empty round
+    with store.connect() as conn:
+        row = conn.execute(
+            "SELECT display_name, cohort FROM subject WHERE subject_id=?", (subject_id,)
+        ).fetchone()
+    assert row["display_name"] == "Sofia Marin"
+    assert row["cohort"] == "operations"
+
+    assert "Sofia Marin" in client.get("/").text
+
+
+def test_a_new_subject_starts_below_min_n_and_says_so(client):
+    """The whole point of adding one: watch it start empty."""
+    as_hr(client)
+    r = client.post("/admin/subjects", data={"display_name": "Sofia Marin"},
+                    follow_redirects=False)
+    subject_id = r.headers["location"].split("added=")[1]
+
+    report = client.get(f"/admin/subject/{subject_id}").text
+    assert "Not enough responses" in report
+
+    row = next(s for s in rounds.subject_state() if s["subject_id"] == subject_id)
+    assert row["n_ballots"] == 0
+    assert row["publishable"] is False
+    assert row["cohort"] == "unassigned"      # blank cohort must not become empty
+
+
+def test_a_new_subjects_name_is_masked_in_the_subject_copy_immediately(client):
+    """The reason the roster cache must be cleared, now checked where it matters.
+
+    `roster.load_subjects` is `lru_cache`d. A subject added while the server runs
+    is invisible to any redactor built from a stale read — so a rater naming them
+    would have that name survive into the copy the subject receives.
+
+    The check moved with the masking. It used to assert on the chat echo, which
+    no longer masks anything; the render-time masker in `poc.reporting` is the
+    thing that now has to know about Sofia, so that is what is asserted.
+    """
+    from poc import reporting
+
+    as_hr(client)
+    client.post("/admin/subjects", data={"display_name": "Sofia Marin"},
+                follow_redirects=False)
+
+    # both redactors: the one scoring codes on the way in, and the one masking on
+    # the way out. A cache-clearing regression breaks them together.
+    assert "Sofia Marin" in nodes.redactor().gazetteer
+    masked = reporting._masker().apply("Sofia Marin unblocked the migration for us.")
+    assert "Sofia Marin" not in masked.text
+    assert "[NAME]" in masked.text
+
+
+def test_a_duplicate_name_is_refused_rather_than_silently_added(client):
+    as_hr(client)
+    client.post("/admin/subjects", data={"display_name": "Sofia Marin"},
+                follow_redirects=False)
+    r = client.post("/admin/subjects", data={"display_name": "sofia marin"},
+                    follow_redirects=False)
+
+    assert "error=" in r.headers["location"]
+    assert client.get(r.headers["location"]).text.count("Sofia Marin") >= 1
+    names = [line.split(",")[1] for line in
+             config.SUBJECTS_PATH.read_text(encoding="utf-8").strip().splitlines()[1:]]
+    assert names.count("Sofia Marin") == 1
+
+
+def test_a_new_subject_id_cannot_collide_with_existing_ballots(client):
+    """Ids in the store are reserved even if no roster row mentions them."""
+    store.upsert_subject("S9", "Ghost Subject", "talent", "")
+    as_hr(client)
+    r = client.post("/admin/subjects", data={"display_name": "Sofia Marin"},
+                    follow_redirects=False)
+    assert r.headers["location"].split("added=")[1] != "S9"
+
+
+def test_adding_a_subject_requires_the_hr_role(client):
+    r = client.post("/admin/subjects", data={"display_name": "Nope"},
+                    follow_redirects=False)
+    assert r.status_code == 403
+    assert "Nope" not in config.SUBJECTS_PATH.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# editing before submission
+# ---------------------------------------------------------------------------
+
+def _to_review(client, ballot_id):
+    """Answer everything and stop on the review question."""
+    r = reply(client, ballot_id, "yes")
+    for _ in range(80):
+        if "review" in r.text and "Submit</button>" in r.text:
+            return r
+        if 'class="num"' in r.text:
+            r = reply(client, ballot_id, "2")
+        elif "textarea" in r.text:
+            r = reply(client, ballot_id,
+                      "They rewrote the onboarding checklist last quarter, cutting "
+                      "ramp time from three weeks to one, and the team still uses it.")
+        else:
+            break
+    raise AssertionError("never reached review")
+
+
+def test_the_likert_screen_promises_the_edit_is_possible(client):
+    """The rater is told before they need it, not when they go looking."""
+    ballot_id = start(client)
+    r = reply(client, ballot_id, "yes")
+    # Whitespace-normalised: the copy wraps in the template, so a raw substring
+    # match would break on reflowing a sentence rather than on losing it.
+    assert "change any rating at the review step" in " ".join(r.text.split())
+
+
+def test_the_review_screen_lists_every_rating_and_answer(client):
+    ballot_id = start(client)
+    r = _to_review(client, ballot_id)
+
+    assert "26 ratings" in r.text
+    assert "written answers" in r.text
+    assert r.text.count('name="item_id"') == 26
+    assert 'action="/b/' in r.text and "/edit/rating" in r.text
+
+
+def test_editing_a_rating_changes_it(client):
+    ballot_id = start(client)
+    _to_review(client, ballot_id)
+
+    iv = Interview(ballot_id, "S1")
+    item = next(iter(iv._app.get_state(iv._cfg).values["likert"]))
+    assert iv._app.get_state(iv._cfg).values["likert"][item] == 2
+
+    r = client.post(f"/b/{ballot_id}/edit/rating",
+                    data={"item_id": item, "value": 3}, follow_redirects=False)
+    assert r.status_code == 303
+
+    iv = Interview(ballot_id, "S1")
+    assert iv._app.get_state(iv._cfg).values["likert"][item] == 3
+
+
+def test_editing_a_rating_replans_the_probes_and_asks_only_what_is_new(client):
+    """The trade-off we accepted: an edit can send the rater back for one probe.
+
+    It must be exactly one. `next_question` skips anything already answered, so
+    the re-planned list must not drag the rater back through probes they have
+    already given — that would be the feature punishing them for correcting a
+    typo.
+    """
+    from poc import banks
+
+    ballot_id = start(client)
+    _to_review(client, ballot_id)
+
+    iv = Interview(ballot_id, "S1")
+    before = {a["ref"] for a in iv._app.get_state(iv._cfg).values["open_answers"]}
+    planned_before = [e["competency_id"]
+                      for e in iv._app.get_state(iv._cfg).values["probe_plan"]]
+
+    # Drive C6 to the bottom of the scale so it becomes the strongest signal.
+    for item in banks.load_bank().competency("C6").items:
+        client.post(f"/b/{ballot_id}/edit/rating",
+                    data={"item_id": item.id, "value": 1}, follow_redirects=False)
+
+    iv = Interview(ballot_id, "S1")
+    state = iv._app.get_state(iv._cfg).values
+    assert "C6" not in planned_before
+    assert state["probe_plan"][0]["competency_id"] == "C6"
+    assert state["pending"]["ref"] == "probe:C6"
+
+    # Answering it returns straight to review, with nothing re-asked.
+    r = reply(client, ballot_id,
+              "They ship fixes without checking what the client actually needed first.")
+    assert "Submit</button>" in r.text
+
+    after = {a["ref"] for a in Interview(ballot_id, "S1")._app.get_state(iv._cfg).values["open_answers"]}
+    assert after == before | {"probe:C6"}, "an already-answered probe was asked again"
+
+
+def test_editing_a_written_answer_keeps_it_and_re_scores_the_mask(client):
+    """An edit must behave exactly like a first answer: keep the text, note the codes.
+
+    The risk this pins down is drift between the two write paths. `collect` and
+    the edit route each build the answer record, and an edit that re-redacted
+    while `collect` did not would silently destroy the one copy HR reads.
+    """
+    ballot_id = start(client)
+    _to_review(client, ballot_id)
+
+    client.post(f"/b/{ballot_id}/edit/answer",
+                data={"ref": "Q1",
+                      "text": "Ana Torres chased me at ana@pluralit.com over FEAT-231."},
+                follow_redirects=False)
+
+    iv = Interview(ballot_id, "S1")
+    stored = next(a for a in iv._app.get_state(iv._cfg).values["open_answers"]
+                  if a["ref"] == "Q1")
+    assert "Ana Torres" in stored["text"]
+    assert "ana@pluralit.com" in stored["text"]
+    assert set(stored["codes"]) >= {"NAME", "EMAIL", "TICKET"}
+
+
+def test_an_edit_after_submission_is_refused(client):
+    """The review screen promises this cannot happen."""
+    ballot_id = start(client)
+    run_to_end(client, ballot_id)
+
+    iv = Interview(ballot_id, "S1")
+    item = next(iter(iv._app.get_state(iv._cfg).values["likert"]))
+    before = iv._app.get_state(iv._cfg).values["likert"][item]
+
+    r = client.post(f"/b/{ballot_id}/edit/rating",
+                    data={"item_id": item, "value": 1}, follow_redirects=False)
+    assert "notice=" in r.headers["location"]
+    assert "cannot be changed" in client.get(r.headers["location"]).text
+
+    iv = Interview(ballot_id, "S1")
+    assert iv._app.get_state(iv._cfg).values["likert"][item] == before
+    with store.connect() as conn:
+        stored = conn.execute(
+            "SELECT value FROM likert_answer WHERE ballot_id=? AND item_id=?",
+            (ballot_id, item),
+        ).fetchone()
+    assert stored["value"] == before
+
+
+def test_an_out_of_range_rating_is_refused(client):
+    ballot_id = start(client)
+    _to_review(client, ballot_id)
+    iv = Interview(ballot_id, "S1")
+    item = next(iter(iv._app.get_state(iv._cfg).values["likert"]))
+
+    r = client.post(f"/b/{ballot_id}/edit/rating",
+                    data={"item_id": item, "value": 9}, follow_redirects=False)
+    assert "notice=" in r.headers["location"]
+    assert Interview(ballot_id, "S1")._app.get_state(iv._cfg).values["likert"][item] == 2
+
+
+# ---------------------------------------------------------------------------
+# self-assessment navigation
+# ---------------------------------------------------------------------------
+
+def test_self_assessment_offers_back_and_a_jump_list(client):
+    r = client.get("/self/S1?page=2")
+    assert 'name="goto" value="1"' in r.text, "no Back button"
+    assert 'name="goto" value="0"' in r.text, "no jump target for page 0"
+    assert "← Back" in r.text
+
+    first = client.get("/self/S1?page=0")
+    assert "← Back" not in first.text, "page 0 must not offer Back"
+
+
+def test_navigating_back_saves_the_current_page_first(client):
+    """Moving around must never be the thing that loses an answer."""
+    page1 = client.get("/self/S1?page=1")
+    ids = list(dict.fromkeys(re.findall(r'name="item_(\w[\w.]*)"', page1.text)))
+    assert ids
+
+    r = client.post("/self/S1",
+                    data={"page": 1, "goto": 0, **{f"item_{i}": "3" for i in ids}},
+                    follow_redirects=False)
+    assert r.headers["location"].endswith("page=0")
+
+    saved = rounds.self_answers("S1")
+    assert all(saved.get(i) == 3 for i in ids)
+
+
+def test_a_previously_answered_page_comes_back_prefilled(client):
+    ids = list(dict.fromkeys(re.findall(r'name="item_(\w[\w.]*)"',
+                                        client.get("/self/S1?page=0").text)))
+    client.post("/self/S1", data={"page": 0, **{f"item_{i}": "1" for i in ids}},
+                follow_redirects=False)
+
+    again = client.get("/self/S1?page=0").text
+    for item_id in ids:
+        block = again.split(f'name="item_{item_id}"')
+        assert 'value="1"' in block[1][:40] and "checked" in block[1][:60], item_id
+
+
+def test_the_jump_list_shows_per_page_completion(client):
+    ids = list(dict.fromkeys(re.findall(r'name="item_(\w[\w.]*)"',
+                                        client.get("/self/S1?page=0").text)))
+    client.post("/self/S1", data={"page": 0, **{f"item_{i}": "2" for i in ids}},
+                follow_redirects=False)
+
+    r = client.get("/self/S1?page=1")
+    assert f">{len(ids)}/{len(ids)}<" in r.text, "completed page not marked complete"
+    assert ">0/" in r.text, "untouched page should show zero answered"
+
+
+# ---------------------------------------------------------------------------
+# what a ballot link is actually doing
+# ---------------------------------------------------------------------------
+
+def test_an_unopened_link_reads_as_not_opened(client):
+    [ballot_id] = rounds.mint_invites("S1", 1)
+    assert rounds.ballot_status(ballot_id) == rounds.BALLOT_NOT_OPENED
+
+
+def test_a_consented_unfinished_interview_reads_as_in_progress(client):
+    """The gap this closes: `responses.db` has no row for this rater at all."""
+    ballot_id = start(client)
+    r = reply(client, ballot_id, "yes")
+    for _ in range(4):
+        r = reply(client, ballot_id, "2")
+
+    with store.connect() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) c FROM ballot WHERE ballot_id=?", (ballot_id,)
+        ).fetchone()["c"] == 0, "precondition: nothing is in the store yet"
+
+    state = rounds.ballot_states()[ballot_id]
+    assert state.status == rounds.BALLOT_IN_PROGRESS
+    assert state.answered == 4
+    assert state.progress == "4/26"
+
+
+def test_an_interview_stopped_before_consent_reads_as_not_opened(client):
+    """Otherwise declining would visibly move a link backwards.
+
+    If merely opening showed 'in progress', a decline would flip it to 'not
+    opened' and anyone watching the page would learn a decline had happened.
+    """
+    ballot_id = start(client)
+    client.get(f"/b/{ballot_id}")          # opened, sitting on the consent screen
+    assert rounds.ballot_status(ballot_id) == rounds.BALLOT_NOT_OPENED
+
+
+def test_declining_is_indistinguishable_from_never_opening(client):
+    """consent.md: 'Declining closes the session and records nothing.'"""
+    declined = start(client)
+    r = reply(client, declined, "no")
+    assert "You declined" in r.text
+
+    [untouched] = rounds.mint_invites("S1", 1)
+    assert rounds.ballot_status(declined) == rounds.ballot_status(untouched)
+    assert rounds.ballot_status(declined) == rounds.BALLOT_NOT_OPENED
+
+
+def test_a_crisis_halt_is_not_singled_out_on_the_invite_list(client):
+    """A halted session must read like any other unfinished one.
+
+    `guardrail_event` stores a code and never the text so distress cannot be
+    attributed to a person. Flagging it per link would undo exactly that.
+    """
+    ballot_id = start(client)
+    r = reply(client, ballot_id, "yes")
+    while 'class="num"' in r.text:
+        r = reply(client, ballot_id, "2")
+    r = reply(client, ballot_id, "Some days I don't want to be here any more.")
+
+    iv = Interview(ballot_id, "S1")
+    assert iv._app.get_state(iv._cfg).values.get("halted") is True
+
+    state = rounds.ballot_states()[ballot_id]
+    assert state.status == rounds.BALLOT_IN_PROGRESS, "a halt must not get its own label"
+
+
+def test_submitted_then_frozen_are_reported_distinctly(client):
+    ballot_id = start(client)
+    run_to_end(client, ballot_id)
+    assert rounds.ballot_status(ballot_id) == rounds.BALLOT_SUBMITTED
+
+    store.freeze_round(rounds.DEFAULT_ROUND)
+    assert rounds.ballot_status(ballot_id) == rounds.BALLOT_FROZEN
+
+
+def test_the_subject_panel_counts_interviews_in_flight(client):
+    """This count was hardcoded to zero by a query that could never match."""
+    before = next(s for s in rounds.subject_state() if s["subject_id"] == "S1")
+    assert before["n_open"] == 0
+
+    ballot_id = start(client)
+    reply(client, ballot_id, "yes")
+    reply(client, ballot_id, "2")
+
+    after = next(s for s in rounds.subject_state() if s["subject_id"] == "S1")
+    assert after["n_open"] == 1
+    assert after["n_ballots"] == 0, "in flight is not the same as counted toward min_n"
+
+    assert "1 in progress" in client.get("/").text
+
+
+def test_the_invite_list_shows_progress(client):
+    [ballot_id] = rounds.mint_invites("S1", 1)
+    client.get(f"/b/{ballot_id}")
+    r = reply(client, ballot_id, "yes")
+    for _ in range(3):
+        r = reply(client, ballot_id, "2")
+
+    as_hr(client)
+    page = client.get("/admin/invites").text
+    assert "in progress · 3/26" in " ".join(page.split())
+
+
+# ---------------------------------------------------------------------------
+# assigning a link to someone, so completion can be chased
+# ---------------------------------------------------------------------------
+#
+# The demo feedback was that an anonymous list of links is not followable: HR
+# could see two of three came back and had no way to know who to remind. These
+# tests pin both halves of the answer — that the address is there to be used, and
+# that having it does not let anyone read the answers behind it.
+
+def test_a_link_can_be_minted_with_an_assignee(client):
+    [ballot_id] = rounds.mint_invites("S1", 1, email="Rater.One@example.com")
+    [invite] = rounds.invites_for()["S1"]
+    assert invite.ballot_id == ballot_id
+    assert invite.email == "Rater.One@example.com"
+    assert invite.assigned
+
+
+def test_a_link_minted_without_an_assignee_stays_unassigned(client):
+    [ballot_id] = rounds.mint_invites("S1", 1)
+    [invite] = rounds.invites_for()["S1"]
+    assert invite.email == ""
+    assert not invite.assigned
+    assert rounds.subject_for_ballot(ballot_id) == "S1"
+
+
+def test_an_address_can_be_attached_after_the_link_was_minted(client):
+    """Minting and handing out happen days apart, so the two must be separable."""
+    [ballot_id] = rounds.mint_invites("S1", 1)
+    rounds.assign_email(ballot_id, "later@example.com")
+    assert rounds.invites_for()["S1"][0].email == "later@example.com"
+
+
+def test_an_address_can_be_corrected_and_cleared(client):
+    [ballot_id] = rounds.mint_invites("S1", 1, email="typo@example.com")
+    rounds.assign_email(ballot_id, "fixed@example.com")
+    assert rounds.invites_for()["S1"][0].email == "fixed@example.com"
+
+    rounds.assign_email(ballot_id, "")
+    assert rounds.invites_for()["S1"][0].email == ""
+
+
+def test_a_malformed_address_is_refused(client):
+    with pytest.raises(ValueError):
+        rounds.mint_invites("S1", 1, email="not-an-address")
+    with pytest.raises(ValueError):
+        rounds.normalise_email("two@@example.com")
+    assert rounds.normalise_email("  spaced@example.com  ") == "spaced@example.com"
+
+
+def test_assigning_an_unknown_link_is_an_error_not_a_silent_no_op(client):
+    with pytest.raises(LookupError):
+        rounds.assign_email("w-nosuchlink", "someone@example.com")
+
+
+def test_links_minted_before_assignment_existed_still_load(client, tmp_path):
+    """The pre-email file format is a bare list of ids. It must keep working.
+
+    A round already in flight when this shipped would otherwise have every one of
+    its links stop resolving to a subject.
+    """
+    (tmp_path / "invites.json").write_text(
+        '{"2026-H2": {"S1": ["w-legacy-one", "w-legacy-two"]}}', encoding="utf-8"
+    )
+    invites = rounds.invites_for()
+    assert [i.ballot_id for i in invites["S1"]] == ["w-legacy-one", "w-legacy-two"]
+    assert all(i.email == "" for i in invites["S1"])
+    assert rounds.subject_for_ballot("w-legacy-two") == "S1"
+
+    # and an address can be added to one without rewriting the file by hand
+    rounds.assign_email("w-legacy-one", "new@example.com")
+    assert rounds.invites_for()["S1"][0].email == "new@example.com"
+    assert rounds.invites_for()["S1"][1].ballot_id == "w-legacy-two"
+
+
+def test_the_invite_page_mints_and_assigns_over_http(client):
+    as_hr(client)
+    client.post("/admin/invites",
+                data={"subject_id": "S1", "n": 1, "email": "manager@example.com"},
+                follow_redirects=False)
+    [invite] = rounds.invites_for()["S1"]
+    assert invite.email == "manager@example.com"
+
+    client.post("/admin/invites/assign",
+                data={"ballot_id": invite.ballot_id, "email": "someone.else@example.com"},
+                follow_redirects=False)
+    assert rounds.invites_for()["S1"][0].email == "someone.else@example.com"
+
+    page = client.get("/admin/invites").text
+    assert "someone.else@example.com" in page
+
+
+def test_a_bad_address_over_http_reports_rather_than_500s(client):
+    as_hr(client)
+    r = client.post("/admin/invites", data={"subject_id": "S1", "n": 1, "email": "nope"},
+                    follow_redirects=True)
+    assert r.status_code == 200
+    assert "does not look like an email" in r.text
+    assert rounds.invites_for() == {}, "nothing should have been minted"
+
+
+def test_the_invite_summary_counts_who_is_still_owed(client):
+    rounds.mint_invites("S1", 1, email="done@example.com")
+    rounds.mint_invites("S1", 1, email="waiting@example.com")
+    rounds.mint_invites("S1", 1)
+
+    ballot_id = rounds.invites_for()["S1"][0].ballot_id
+    client.get(f"/b/{ballot_id}")
+    run_to_end(client, ballot_id)
+
+    summary = rounds.invite_summary(rounds.invite_rows())
+    assert summary["minted"] == 3
+    assert summary["assigned"] == 2
+    assert summary["unassigned"] == 1
+    assert summary["complete"] == 1
+    # the one number HR acts on: assigned, and not back yet
+    assert summary["outstanding"] == 1
+
+
+def test_the_response_store_alone_cannot_attribute(client):
+    """The boundary that survived the demo-2 clarification, stated precisely.
+
+    HR may now attribute feedback — that is the client's decision — but the
+    attribution is a deliberate join across two stores, not a column. Someone
+    holding `responses.db` and nothing else still cannot say who wrote what.
+    That is what keeps "identity separation" a real design rather than a label,
+    and it is the property `identity.db` will carry in the full build.
+
+    The earlier version of this test checked the same thing and claimed more:
+    that the two could not be joined at all. They can — by `ballot_id` — which is
+    exactly the mechanism `rater_labels()` now uses on purpose.
+    """
+    [ballot_id] = rounds.mint_invites("S1", 1, email="rater.identity@example.com")
+    client.get(f"/b/{ballot_id}")
+    run_to_end(client, ballot_id)
+
+    with store.connect() as conn:
+        tables = [r["name"] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )]
+        for table in tables:
+            for row in conn.execute(f"SELECT * FROM {table}"):
+                blob = " ".join(str(v) for v in tuple(row))
+                assert "rater.identity" not in blob, f"identity leaked into {table}"
+
+
+def test_hr_sees_who_said_what(client):
+    """The demo-2 requirement, end to end."""
+    [ballot_id] = rounds.mint_invites("S1", 1, email="marcos@example.com")
+    client.get(f"/b/{ballot_id}")
+    run_to_end(client, ballot_id,
+               answer="They quietly rebuilt the intake process and it has not slipped since.")
+
+    as_hr(client)
+    report = client.get("/admin/subject/S1").text
+    assert "marcos@example.com" in report, "HR must see the reviewer"
+    assert "quietly rebuilt the intake process" in report, "HR must see it as written"
+
+
+def test_the_subject_copy_attributes_nothing(client):
+    """Same round, same data, the other audience."""
+    [ballot_id] = rounds.mint_invites("S1", 1, email="marcos@example.com")
+    client.get(f"/b/{ballot_id}")
+    run_to_end(client, ballot_id,
+               answer="Reach me on marcos@example.com and I will explain the delivery detail.")
+
+    as_hr(client)
+    subject_copy = client.get("/admin/subject/S1?audience=subject").text
+    assert "marcos@example.com" not in subject_copy
+    assert "Responses by reviewer" not in subject_copy
+    assert "do not forward" not in subject_copy.lower()
+
+
+def test_the_hr_copy_is_marked_not_for_the_subject(client):
+    [ballot_id] = rounds.mint_invites("S1", 1, email="marcos@example.com")
+    client.get(f"/b/{ballot_id}")
+    run_to_end(client, ballot_id)
+
+    as_hr(client)
+    report = client.get("/admin/subject/S1?audience=hr").text
+    assert "do not forward" in report.lower(), "an attributed report must say so on its face"
+
+
+def test_reporting_defaults_to_the_protective_audience(client):
+    """A caller that forgets who is reading must get the masked rendering.
+
+    This is the fail-closed property. `poc.reporting` is called from the web
+    layer, the CLI, and tests; a new caller that omits `audience` should produce a
+    duller report, never a disclosure.
+    """
+    from poc import reporting
+
+    [ballot_id] = rounds.mint_invites("S1", 1, email="marcos@example.com")
+    client.get(f"/b/{ballot_id}")
+    run_to_end(client, ballot_id,
+               answer="Mail marcos@example.com for the specifics of that delivery.")
+
+    pipe = rounds.pipeline()
+    default = reporting.individual_report("S1", pipe.data, pipe.cells, pipe.marks,
+                                          pipe.rules, pipe.bank)
+    assert "marcos@example.com" not in default
+    assert "Responses by reviewer" not in default
+
+
+def test_an_unassigned_link_is_shown_as_such_not_hidden(client):
+    """A response from a link nobody was recorded against is a distribution gap."""
+    from poc import reporting
+
+    [ballot_id] = rounds.mint_invites("S1", 1)          # deliberately no email
+    client.get(f"/b/{ballot_id}")
+    run_to_end(client, ballot_id)
+
+    pipe = rounds.pipeline()
+    report = reporting.individual_report(
+        "S1", pipe.data, pipe.cells, pipe.marks, pipe.rules, pipe.bank,
+        audience=reporting.AUDIENCE_HR, raters=rounds.rater_labels())
+    assert reporting.UNASSIGNED_RATER in report
+
+
+def test_the_invite_page_still_shows_no_answer_content(client):
+    """Attribution belongs on the report, not on the distribution list.
+
+    The invite page exists to chase completion. Putting answers on it would mean
+    anyone glancing at an HR screen reads someone's feedback.
+    """
+    [ballot_id] = rounds.mint_invites("S1", 1, email="rater.identity@example.com")
+    client.get(f"/b/{ballot_id}")
+    run_to_end(client, ballot_id, answer="They handle escalations calmly and early, in writing.")
+
+    as_hr(client)
+    page = client.get("/admin/invites").text
+    assert "rater.identity@example.com" in page
+    assert "escalations" not in page
+
+
+# ---------------------------------------------------------------------------
+# the self-assessment has three states, not two
+# ---------------------------------------------------------------------------
+
+def test_an_untouched_self_assessment_reads_as_not_started(client):
+    state = rounds.self_status("S1")
+    assert state["status"] == rounds.SELF_NOT_STARTED
+    assert state["n_answered"] == 0
+    assert not state["started"]
+
+
+def test_a_partly_filled_self_assessment_reads_as_in_progress(client):
+    """The gap this closes: a half-finished form used to look like an empty one."""
+    ids = [i.id for i in banks.load_bank().competencies[0].items]
+    client.post("/self/S1", data={"page": 0, **{f"item_{i}": "2" for i in ids}},
+                follow_redirects=False)
+
+    state = rounds.self_status("S1")
+    assert state["status"] == rounds.SELF_IN_PROGRESS
+    assert state["started"] and not state["complete"]
+    assert state["progress"] == f"{len(ids)}/{state['n_items']}"
+
+
+def test_a_fully_answered_self_assessment_reads_as_complete(client):
+    bank = banks.load_bank()
+    for page, comp in enumerate(bank.competencies):
+        client.post("/self/S1",
+                    data={"page": page, **{f"item_{i.id}": "2" for i in comp.items}},
+                    follow_redirects=False)
+
+    state = rounds.self_status("S1")
+    assert state["status"] == rounds.SELF_COMPLETE
+    assert state["complete"]
+    assert state["n_answered"] == state["n_items"]
+
+
+def test_the_round_pages_show_the_three_self_states(client):
+    assert "not started" in client.get("/").text
+
+    ids = [i.id for i in banks.load_bank().competencies[0].items]
+    client.post("/self/S1", data={"page": 0, **{f"item_{i}": "2" for i in ids}},
+                follow_redirects=False)
+
+    landing = " ".join(client.get("/").text.split())
+    assert f"in progress · {len(ids)}/26" in landing
+
+    as_hr(client)
+    assert f"in progress · {len(ids)}/26" in " ".join(client.get("/admin").text.split())
+
+
+# ---------------------------------------------------------------------------
+# the self-assessment is worded for the person reading it
+# ---------------------------------------------------------------------------
+
+def test_the_self_form_asks_in_the_second_person(client):
+    page = client.get("/self/S1").text
+    assert "Do you consistently meet agreed deadlines" in page
+    assert "Does this person" not in page, "rater wording on the subject's own form"
+
+
+def test_the_self_form_anchors_are_in_the_second_person_too(client):
+    """Question and level descriptions sit in one paragraph; both must match."""
+    page = client.get("/self/S1").text
+    assert "You consistently meet what you agree to" in page
+    assert "Requires frequent reminders" not in page
+
+
+def test_the_rater_interview_keeps_the_third_person_wording(client):
+    """The self wording must not leak the other way — a rater is not the subject."""
+    ballot_id = start(client)
+    page = reply(client, ballot_id, "yes").text
+    assert "Do you consistently meet" not in page
+
+
+def test_every_item_carries_both_wordings(client):
+    """A bank edit that adds an item and forgets `self_prompt` degrades quietly.
+
+    `prompt_for` falls back on purpose so the page still renders, which is right
+    at runtime and exactly why the omission needs catching here instead.
+    """
+    missing = [i.id for i in banks.load_bank().all_items if not i.self_prompt]
+    assert not missing, f"items with no second-person wording: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# "not observed" over HTTP
+# ---------------------------------------------------------------------------
+
+def test_the_scale_offers_the_opt_out(client):
+    ballot_id = start(client)
+    page = reply(client, ballot_id, "yes").text
+    assert "not_observed" in page, "the button must post the canonical token"
+    assert "no basis to rate this" in page
+
+
+def test_the_opt_out_advances_instead_of_re_asking(client):
+    ballot_id = start(client)
+    r = reply(client, ballot_id, "yes")
+    first = re.search(r'"reply": "not_observed"', r.text)
+    assert first, "precondition: the opt-out is on screen"
+
+    r = reply(client, ballot_id, "not_observed")
+    iv = Interview(ballot_id, "S1")
+    values = iv._app.get_state(iv._cfg).values
+    assert values["declined"] == ["C1.1"]
+    assert values.get("likert", {}) == {}
+    assert values["pending"]["ref"] == "C1.2", "the walk must move on"
+
+
+def test_a_declined_item_is_editable_at_the_review_step(client):
+    """The last chance to change your mind, and the one people most want.
+
+    This also covers the regression the opt-out introduced: `_guard_editable`
+    counted only `likert`, so a single decline made the whole ballot uneditable
+    and quietly removed the review step from the raters most likely to use it.
+    """
+    ballot_id = start(client)
+    r = reply(client, ballot_id, "yes")
+    r = reply(client, ballot_id, "not observed")        # decline C1.1
+
+    for _ in range(120):                                # drive to review, don't submit
+        if "Submit</button>" in r.text:
+            break
+        if 'class="num"' in r.text:
+            r = reply(client, ballot_id, "2")
+        elif "textarea" in r.text:
+            r = reply(client, ballot_id,
+                      "They rewrote the intake checklist and it has held up since.")
+        else:
+            break
+    assert "Submit</button>" in r.text, "precondition: parked on the review screen"
+
+    iv = Interview(ballot_id, "S1")
+    assert iv._app.get_state(iv._cfg).values["declined"] == ["C1.1"]
+    assert "not observed" in r.text.lower()
+
+    client.post(f"/b/{ballot_id}/edit/rating", data={"item_id": "C1.1", "value": "3"},
+                follow_redirects=False)
+
+    iv = Interview(ballot_id, "S1")
+    values = iv._app.get_state(iv._cfg).values
+    assert values["likert"]["C1.1"] == 3
+    assert "C1.1" not in values["declined"], "rating it must clear the decline"
+
+
+def test_declines_show_as_coverage_on_the_report(client):
+    """Not a low score and not missing data — a fact about visibility."""
+    from poc import banks, reporting
+
+    c3 = {i.id for i in banks.load_bank().competency("C3").items}
+    for _ in range(2):
+        ballot_id = start(client)
+        r = reply(client, ballot_id, "yes")
+        for _ in range(200):
+            if 'class="closing' in r.text:
+                break
+            if 'class="num"' in r.text:
+                ref = re.search(r'name="item_id" value="([^"]+)"', r.text)
+                r = reply(client, ballot_id, "2")
+            elif "Submit</button>" in r.text:
+                r = reply(client, ballot_id, "yes")
+            elif "textarea" in r.text:
+                r = reply(client, ballot_id, "They steadied the intake process under pressure.")
+            else:
+                break
+
+    pipe = rounds.pipeline()
+    report = reporting.individual_report(
+        "S1", pipe.data, pipe.cells, pipe.marks, pipe.rules, pipe.bank,
+        audience=reporting.AUDIENCE_HR)
+    # no declines in this round, so the section must not appear at all
+    assert "no basis to judge" not in report

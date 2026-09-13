@@ -1,0 +1,59 @@
+# Aggregation and redaction rules — Conversational 360° POC
+# Every number a report suppresses or publishes traces back to this file.
+
+round:
+  id: "2026-H2"
+  label: "H2 2026 — round 1 (confidential, no breakdown by role)"
+
+suppression:
+  # Minimum distinct RATER ballots before a cell can be published. The
+  # self-assessment is not a ballot and never counts toward this.
+  #
+  # Set to 2 to match the client's operating floor: three evaluations per subject
+  # including the self-assessment, i.e. two anonymous raters.
+  #
+  # KNOWN TENSION — read before changing this.
+  # The capstone brief requires round 1 to be "fully anonymous" with no
+  # attributable feedback shown to anyone. At n=2, where the client's model makes
+  # one of the two the direct manager, a subject can often infer who said what.
+  # The STRUCTURAL guarantee still holds: no rater identity is stored beside any
+  # answer and no query reconnects them. The INFERENTIAL protection does not.
+  # consent.md states this plainly rather than promising anonymity the arithmetic
+  # cannot deliver. Raising this to 3 restores a meaningful threshold and requires
+  # the client to move to four evaluations per subject.
+  min_n: 2
+
+  # A cell is suppressed if a single ballot supplies more than this share of its
+  # answers, even when min_n is met. Bites when raters skip items unevenly.
+  dominance_max_share: 0.50
+
+  # If exactly one sibling in a published group is suppressed, its value is
+  # recoverable from the parent. Suppress a second sibling to break that.
+  complementary: true
+
+  codes:
+    MIN_N: "Suppressed: fewer than {min_n} contributing responses"
+    DOMINANCE: "Suppressed: one response accounts for more than {pct}% of this cell"
+    COMPLEMENTARY: "Suppressed: publishing this value would reveal a suppressed sibling"
+
+themes:
+  # Minimum distinct ballots that must mention a theme before it is reported.
+  min_ballots_per_theme: 3
+  # Round 1 emits paraphrased themes only. Never verbatim rater text.
+  allow_verbatim_quotes: false
+  max_themes_per_report: 6
+
+# Bands are conversation context, never a verdict. See PLAN.md section 2.
+# Capstone brief: <2 / 2-2.5 / >2.5. Client doc uses >2.6 on C2+C4.
+bands:
+  - { id: "developing", max_exclusive: 2.0, label: "In development / needs guidance" }
+  - { id: "meets",      max_inclusive: 2.5, label: "Meets expectations" }
+  - { id: "reference",  label: "Reference / exceeds expectations" }
+
+grouping:
+  by: ["competency", "dimension"]
+  cohorts_from: "subject"   # never from the rater — see PLAN.md section 3
+
+retention:
+  raw_responses_months: 12
+  aggregates: "indefinite"

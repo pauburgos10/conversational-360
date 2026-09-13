@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Conversational 360°{% endblock %}</title>
+<script src="/static/htmx.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1a1d21; --muted: #666e78;
+    --line: #e2e5ea; --accent: #2f5d8a; --accent-ink: #ffffff;
+    --warn-bg: #fff6e5; --warn-line: #e3b341; --warn-ink: #6b4a00;
+    --ok: #1f7a4d; --bad: #a33;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --card: #1d2126; --ink: #e8eaed; --muted: #9aa3ad;
+      --line: #2c3238; --accent: #6fa3d6; --accent-ink: #10141a;
+      --warn-bg: #35290f; --warn-line: #7a5f1e; --warn-ink: #f0d79a;
+      --ok: #6cc79a; --bad: #e08585;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header.topbar {
+    display: flex; flex-wrap: wrap; gap: .75rem; align-items: center;
+    padding: .6rem 1rem; background: var(--card); border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header.topbar .brand { font-weight: 700; letter-spacing: -.01em; margin-right: auto; }
+  header.topbar .brand a { color: inherit; text-decoration: none; }
+  main { max-width: 46rem; margin: 0 auto; padding: 1rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 1rem; margin-bottom: 1rem;
+  }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; letter-spacing: -.02em; }
+  h2 { font-size: 1.1rem; margin: 1.4rem 0 .5rem; }
+  .sub { color: var(--muted); font-size: .9rem; margin: 0 0 1rem; }
+  a { color: var(--accent); }
+  button, .btn {
+    font: inherit; cursor: pointer; border-radius: 8px; padding: .5rem .85rem;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    text-decoration: none; display: inline-block;
+  }
+  button.primary, .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .pill {
+    font-size: .75rem; padding: .15rem .5rem; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
+  }
+  .pill.live { border-color: var(--warn-line); background: var(--warn-bg); color: var(--warn-ink); }
+  .pill.ok { border-color: var(--ok); color: var(--ok); }
+  .pill.bad { border-color: var(--bad); color: var(--bad); }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+  th, td { text-align: left; padding: .45rem .5rem; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+  .scroll { overflow-x: auto; }
+  .notice {
+    background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-ink);
+    border-radius: 10px; padding: .6rem .8rem; margin: .5rem 0; font-size: .93rem;
+  }
+  .muted { color: var(--muted); }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .88em; }
+  form.inline { display: inline; }
+  a.pill-link { text-decoration: none; }
+  a.pill-link:hover { border-color: var(--accent); color: var(--accent); }
+  .demobar {
+    margin: 0 0 1rem; padding: .6rem .85rem; border-radius: 8px;
+    border: 1px solid var(--warn-line); background: var(--warn-bg);
+    color: var(--warn-ink); font-size: .88rem;
+  }
+</style>
+{% block head %}{% endblock %}
+</head>
+<body>
+<header class="topbar">
+  <span class="brand"><a href="/">Conversational 360°</a></span>
+  {# Same vocabulary as the control on /admin. A header that says "stub" while
+     the toggle says "Offline" reads as two different settings.
+
+     For HR this badge links to the control that changes it. It is a status
+     indicator, but it does not look like one — it reads as something you can
+     click, and with no route to /admin from here that misreading costs a
+     confused minute. Raters get plain text, since /admin would 403 them. #}
+  {% if llm %}
+    {% set llm_label %}
+      {%- if llm.effective == 'openai' %}Live · {{ llm.model }}
+      {%- elif llm.degraded %}Offline (no key)
+      {%- else %}Offline{% endif -%}
+    {% endset %}
+    {% set llm_title %}
+      {%- if llm.degraded %}Live was requested but no API key is set
+      {%- elif llm.effective == 'openai' %}Live API calls, billed per turn
+      {%- else %}Deterministic, offline, free{% endif -%}
+    {% endset %}
+    {% if role == 'hr_admin' %}
+      <a class="pill {% if llm.effective == 'openai' %}live{% endif %} pill-link"
+         href="/admin#llm" title="{{ llm_title|trim }} — click to change">{{ llm_label|trim }}</a>
+    {% else %}
+      <span class="pill {% if llm.effective == 'openai' %}live{% endif %}"
+            title="{{ llm_title|trim }}">{{ llm_label|trim }}</span>
+    {% endif %}
+  {% endif %}
+  <form class="inline" method="post" action="/role">
+    <input type="hidden" name="next" value="{{ request.url.path }}">
+    <select name="role" onchange="this.form.submit()" aria-label="Acting as">
+      {% for value, label in roles.items() %}
+        <option value="{{ value }}" {% if value == role %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </form>
+</header>
+<main>
+{% if is_demo %}
+  {# Every person in this round is invented. The names are plausible on purpose —
+     the redaction rules have to be exercised against realistic input — which is
+     exactly why a reader needs telling before they draw a conclusion about
+     someone. #}
+  <div class="demobar">
+    <strong>Demonstration.</strong>
+    Every person, rating and comment here is synthetic — no real employee is
+    described. Anything you enter is wiped when the demo restarts.
+  </div>
+{% endif %}
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

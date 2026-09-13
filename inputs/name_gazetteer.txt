@@ -1,0 +1,10 @@
+# Known person names, redacted from free text on sight.
+# In production this is populated from the HRIS roster, never hand-maintained.
+Ana Torres
+Marcos Vidal
+Lucia Ferrer
+Diego Salas
+Nadia Okonkwo
+Priya Raman
+Tomas Blanco
+Elena Ruiz

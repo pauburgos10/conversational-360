@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ kind }} — {{ title }}{% endblock %}
+{% block head %}
+<style>
+  .md h1 { font-size: 1.4rem; }
+  .md h2 { font-size: 1.1rem; margin-top: 1.6rem; }
+  .md table { margin: .5rem 0 1rem; }
+  .md blockquote {
+    margin: 1rem 0; padding: .6rem .9rem; border-left: 3px solid var(--accent);
+    background: var(--card); color: var(--muted);
+  }
+  .md code { background: var(--bg); padding: .1rem .3rem; border-radius: 4px; }
+  .md em { color: var(--muted); }
+  .tabs { display: flex; gap: .4rem; margin: 0 0 .8rem; }
+</style>
+{% endblock %}
+{% block content %}
+<p class="sub"><a href="/admin">← Round {{ round_id }}</a> · {{ kind }}</p>
+
+{% if subject_id %}
+  {# Two renderings of one report. The toggle is the point: HR can read the copy
+     the subject will get, side by side with their own, before handing it over. #}
+  <div class="tabs">
+    <a class="btn {% if audience == 'hr' %}primary{% endif %}"
+       href="/admin/subject/{{ subject_id }}?audience=hr">HR copy</a>
+    <a class="btn {% if audience == 'subject' %}primary{% endif %}"
+       href="/admin/subject/{{ subject_id }}?audience=subject">Subject copy</a>
+  </div>
+{% endif %}
+
+<div class="card md scroll">{{ body|md }}</div>
+{% endblock %}

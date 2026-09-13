@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Self-assessment — {{ subject_display }}{% endblock %}
+{% block head %}
+<style>
+  .item { padding: .8rem 0; border-bottom: 1px solid var(--line); }
+  .item:last-of-type { border-bottom: 0; }
+  .item .prompt { margin: 0 0 .5rem; }
+  .item .label { font-size: .82rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .opts { display: flex; flex-direction: column; gap: .35rem; }
+  .opts label { display: flex; gap: .5rem; align-items: baseline; cursor: pointer; }
+  .bar { height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; margin: .5rem 0 1rem; }
+  .bar span { display: block; height: 100%; background: var(--accent); }
+  details dt { font-weight: 700; float: left; clear: left; width: 1.5rem; }
+  details dd { margin: 0 0 .4rem 1.5rem; color: var(--muted); }
+  .jump { display: flex; flex-wrap: wrap; gap: .3rem; margin: 0 0 1rem; }
+  .jump button {
+    font-size: .78rem; padding: .25rem .5rem; display: flex; gap: .35rem; align-items: baseline;
+  }
+  .jump button.current { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+  .jump button.full { border-color: var(--ok); }
+  .jump .n { font-size: .7rem; opacity: .7; }
+  .nav { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+  .nav .spacer { flex: 1; }
+</style>
+{% endblock %}
+{% block content %}
+<h1>Self-assessment</h1>
+<p class="sub">
+  {{ subject_display }} · round {{ round_id }}. Your own view is stored separately from
+  the rater pool and is <strong>never</strong> counted in any average — it appears in your
+  report as a comparison.
+</p>
+
+<div class="bar"><span style="width: {{ (100 * n_answered / n_items)|round(0, 'floor') }}%"></span></div>
+<p class="muted" style="font-size:.85em">{{ n_answered }} of {{ n_items }} answered.</p>
+
+{% if done %}
+  <div class="card">
+    <strong>{{ n_answered }} of {{ n_items }} saved.</strong>
+    {% if n_answered < n_items %}
+      <p class="muted">Some items are still blank — the jump list below shows which.</p>
+    {% else %}
+      <p class="muted">All {{ n_items }} items recorded. Come back any time to change an answer.</p>
+    {% endif %}
+    <div class="jump">
+      {% for pg in pages %}
+        <a class="btn {% if pg.n_done == pg.n_items %}full{% endif %}"
+           href="/self/{{ subject_id }}?page={{ pg.index }}">
+          {{ pg.name }} <span class="n">{{ pg.n_done }}/{{ pg.n_items }}</span>
+        </a>
+      {% endfor %}
+    </div>
+    <a class="btn primary" href="/">Back to the round</a>
+  </div>
+{% else %}
+<form method="post" action="/self/{{ subject_id }}">
+  <input type="hidden" name="page" value="{{ page }}">
+  <input type="hidden" name="round_id" value="{{ round_id }}">
+
+  {# Every navigation control is a submit button carrying `goto`, so moving
+     around always writes the current page first. Navigating can never be the
+     thing that loses an answer. #}
+  <div class="jump">
+    {% for pg in pages %}
+      <button type="submit" name="goto" value="{{ pg.index }}"
+              class="{% if pg.current %}current{% elif pg.n_done == pg.n_items %}full{% endif %}"
+              title="{{ pg.name }} — {{ pg.n_done }} of {{ pg.n_items }} answered">
+        {{ pg.name }} <span class="n">{{ pg.n_done }}/{{ pg.n_items }}</span>
+      </button>
+    {% endfor %}
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">{{ competency.name }}</h2>
+    <p class="muted" style="font-size:.9em">{{ competency.definition }}</p>
+    <details>
+      <summary>What do the levels mean?</summary>
+      <dl>
+        {% for v in ['1','2','3'] %}<dt>{{ v }}</dt><dd>{{ anchors[v] }}</dd>{% endfor %}
+      </dl>
+    </details>
+
+    {% for item in competency.items %}
+    <div class="item">
+      <div class="label">{{ item.label }}</div>
+      <p class="prompt">{{ item.prompt_for(perspective) }}</p>
+      <div class="opts">
+        {% for v in ['1','2','3'] %}
+        <label>
+          <input type="radio" name="item_{{ item.id }}" value="{{ v }}"
+                 {% if answered.get(item.id)|string == v %}checked{% endif %}>
+          <span><strong>{{ v }}</strong> — {{ scale[v] }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="nav">
+    {% if prev_page is not none %}
+      <button type="submit" name="goto" value="{{ prev_page }}">← Back</button>
+    {% endif %}
+    <span class="spacer"></span>
+    <a class="btn" href="/">Leave</a>
+    <button class="primary" type="submit">
+      {% if page + 1 >= n_pages %}Save and finish{% else %}Save and continue ({{ page + 1 }}/{{ n_pages }}){% endif %}
+    </button>
+  </div>
+  <p class="muted" style="font-size:.85em">
+    Each page saves as you move. You can come back and change any answer until
+    the round is closed.
+  </p>
+</form>
+{% endif %}
+{% endblock %}

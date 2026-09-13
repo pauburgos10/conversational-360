@@ -1,0 +1,237 @@
+{# Rendering one conversational turn.
+
+   Both the full chat page and the HTMX fragment use these, so a question looks
+   the same whether it arrived with the page or was swapped in afterwards. #}
+
+{% macro rater_said(text, was_redacted=false) %}
+  <div class="msg me">
+    <div class="bubble">
+      {{ text }}
+      {% if was_redacted %}
+        <div class="redacted-note">
+          Saved as written. Identifying details will be removed from the copy the
+          person you are reviewing receives.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+{% endmacro %}
+
+
+{% macro notice(text) %}
+  {% if text %}<div class="notice">{{ text|paras }}</div>{% endif %}
+{% endmacro %}
+
+
+{% macro question(pending) %}
+  {% if pending %}
+  <div class="msg bot">
+    <div class="bubble">
+      {% if pending.kind == 'consent' %}
+        {{ pending.welcome|paras }}
+        <details class="consent">
+          <summary>Read the consent notice</summary>
+          <div class="md">{{ pending.text|md }}</div>
+        </details>
+      {% elif pending.kind == 'likert' %}
+        <div class="qmeta">
+          <span class="pill">{{ pending.progress }}</span>
+          <span class="muted">{{ pending.competency_name }} · {{ pending.label }}</span>
+        </div>
+        {{ pending.text|paras }}
+      {% else %}
+        {# An open probe names its competency: it sits directly under that
+           competency's ratings, and saying so beats making the rater work out
+           which answers the question is following up on. #}
+        {% if pending.competency_name %}
+          <div class="qmeta"><span class="muted">Following up on {{ pending.competency_name }}</span></div>
+        {% endif %}
+        {{ pending.text|paras }}
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+{% endmacro %}
+
+
+{% macro llm_trace(calls, role) %}
+  {# HR only. In a real round a rater must not be told which model worded their
+     question; while testing it is the entire point. `role` is passed in rather
+     than read from context because macros are imported without it. #}
+  {% if calls and role == 'hr_admin' %}
+    <div class="trace">
+      {% for c in calls %}
+        <span class="tr {% if c.is_problem %}tr-bad{% elif c.is_live %}tr-live{% else %}tr-stub{% endif %}"
+              title="{{ c.at }}">
+          <b>{{ c.op }}</b>
+          {%- if c.is_live %} · {{ c.model }}
+          {%- else %} · {{ c.label }}{% endif %}
+          · {{ c.ms }}ms
+          {%- if c.detail %} · {{ c.detail }}{% endif %}
+        </span>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endmacro %}
+
+
+{% macro review_panel(ballot_id, review) %}
+  {# Everything that will be submitted, editable in place.
+
+     Ratings post one at a time rather than as one big form: a rating change can
+     re-plan the probes and send the rater back into the interview, and batching
+     several edits would make it ambiguous which one caused that. #}
+  <div class="review">
+    <details open>
+      <summary><strong>{{ review.n_likert }} ratings</strong> — check or change any of them</summary>
+      {% for comp in review.competencies %}
+        <div class="rgroup">
+          <div class="rgroup-name">{{ comp.name }}</div>
+          {% for item in comp.questions %}
+            <div class="rrow{% if item.declined %} declined{% endif %}">
+              <span class="rlabel" title="{{ item.prompt }}">
+                {{ item.label }}
+                {% if item.declined %}<em class="nobs">not observed</em>{% endif %}
+              </span>
+              <form method="post" action="/b/{{ ballot_id }}/edit/rating" class="rvals">
+                <input type="hidden" name="item_id" value="{{ item.id }}">
+                {% for v in ['1', '2', '3'] %}
+                  <button type="submit" name="value" value="{{ v }}"
+                          class="rv {% if item.value|string == v %}on{% endif %}"
+                          aria-pressed="{{ 'true' if item.value|string == v else 'false' }}"
+                          title="{{ review.scale[v] }}">{{ v }}</button>
+                {% endfor %}
+              </form>
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </details>
+
+    {% if review.answers %}
+    <details>
+      <summary><strong>{{ review.n_answers }} written answers</strong> — expand to reword</summary>
+      {% for a in review.answers %}
+        <div class="agroup">
+          <div class="rgroup-name">{{ a.heading }}</div>
+          <form method="post" action="/b/{{ ballot_id }}/edit/answer">
+            <input type="hidden" name="ref" value="{{ a.ref }}">
+            <textarea name="text" rows="3" required>{{ a.text }}</textarea>
+            {% if a.codes %}
+              <div class="muted" style="font-size:.75rem">
+                already redacted: {% for c in a.codes %}<span class="pill">{{ c }}</span>{% endfor %}
+              </div>
+            {% endif %}
+            <button type="submit">Save this answer</button>
+          </form>
+        </div>
+      {% endfor %}
+    </details>
+    {% endif %}
+
+    <p class="muted" style="font-size:.85em">
+      Changing a rating may add a short follow-up question, because the open
+      questions are chosen from where your ratings carry the most signal.
+    </p>
+  </div>
+{% endmacro %}
+
+
+{% macro composer(ballot_id, pending, turn, oob=false) %}
+<div id="composer" class="composer"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% if not pending %}
+    {# ---- the interview is over -------------------------------------- #}
+    {% set o = turn.outcome %}
+    <div class="closing {{ o }}">
+      {% if o == 'declined' %}
+        <strong>You declined.</strong>
+        <p class="muted">Nothing has been recorded. Thank you for your time.</p>
+      {% elif o == 'crisis' %}
+        <strong>Session stopped.</strong>
+        <p class="muted">Your progress is saved. The ratings you already gave are kept.</p>
+      {% elif o == 'submitted' %}
+        <strong>Submitted. Thank you.</strong>
+        <p class="muted">
+          {{ turn.summary.likert }} ratings · {{ turn.summary.open }} written answers ·
+          {{ turn.summary.followups }} follow-ups asked
+        </p>
+        {% if turn.summary.redactions %}
+          <p class="muted">Redacted before storage:
+            {% for code, n in turn.summary.redactions.items() %}
+              <span class="pill">{{ code }} × {{ n }}</span>
+            {% endfor %}
+          </p>
+        {% endif %}
+      {% else %}
+        <strong>Saved, not submitted.</strong>
+        <p class="muted">Reopen this same link to finish.</p>
+      {% endif %}
+      <a class="btn" href="/">Back to the round</a>
+    </div>
+
+  {% elif pending.kind == 'consent' %}
+    <div class="choices">
+      <button class="primary" hx-post="/b/{{ ballot_id }}/reply" hx-vals='{"reply": "yes"}'
+              hx-target="#log" hx-swap="beforeend" hx-disabled-elt="#composer button">I accept</button>
+      <button hx-post="/b/{{ ballot_id }}/reply" hx-vals='{"reply": "no"}'
+              hx-target="#log" hx-swap="beforeend" hx-disabled-elt="#composer button">I decline</button>
+    </div>
+
+  {% elif pending.kind == 'likert' %}
+    <div class="choices scale">
+      {% for value in ['1', '2', '3'] %}
+        <button hx-post="/b/{{ ballot_id }}/reply" hx-vals='{"reply": "{{ value }}"}'
+                hx-target="#log" hx-swap="beforeend" hx-disabled-elt="#composer button">
+          <span class="num">{{ value }}</span>
+          <span class="lbl">{{ pending.scale[value] }}</span>
+        </button>
+      {% endfor %}
+    </div>
+    {% if pending.allows_not_observed %}
+      {# Deliberately set apart from the 1-3 buttons rather than sitting as a
+         fourth option in the row. It is not a fourth point on the scale, and a
+         rater who is genuinely unsure should be nudged toward a rating, not
+         toward the exit. #}
+      <div class="choices optout">
+        <button class="ghost" hx-post="/b/{{ ballot_id }}/reply"
+                hx-vals='{"reply": "not_observed"}'
+                hx-target="#log" hx-swap="beforeend" hx-disabled-elt="#composer button">
+          Not observed — I have no basis to rate this
+        </button>
+      </div>
+    {% endif %}
+    <p class="reassure">
+      Not sure? Answer as best you can — you can change any rating at the review
+      step before you submit. Use <em>Not observed</em> only when you genuinely
+      have not seen this side of their work; it is excluded from their scores
+      rather than counted against them.
+    </p>
+    {% if pending.anchors %}
+      <details class="anchors">
+        <summary>What do these levels mean?</summary>
+        <dl>
+          {% for value in ['1', '2', '3'] %}
+            <dt>{{ value }}</dt><dd>{{ pending.anchors[value] }}</dd>
+          {% endfor %}
+        </dl>
+      </details>
+    {% endif %}
+
+  {% elif pending.kind == 'review' %}
+    <div class="choices">
+      <button class="primary" hx-post="/b/{{ ballot_id }}/reply" hx-vals='{"reply": "yes"}'
+              hx-target="#log" hx-swap="beforeend" hx-disabled-elt="#composer button">Submit</button>
+      <button hx-post="/b/{{ ballot_id }}/reply" hx-vals='{"reply": "no"}'
+              hx-target="#log" hx-swap="beforeend" hx-disabled-elt="#composer button">Not yet</button>
+    </div>
+
+  {% else %}
+    <form hx-post="/b/{{ ballot_id }}/reply" hx-target="#log" hx-swap="beforeend"
+          hx-disabled-elt="find button" hx-on::after-request="this.reset()">
+      <textarea name="reply" rows="3" required autofocus
+                placeholder="Type your answer…"></textarea>
+      <button class="primary" type="submit">Send</button>
+    </form>
+  {% endif %}
+</div>
+{% endmacro %}

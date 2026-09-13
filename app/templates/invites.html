@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Invites — {{ round_id }}{% endblock %}
+{% block head %}
+<style>
+  .mint { display: flex; flex-wrap: wrap; gap: .6rem; align-items: flex-end; }
+  .mint label { display: flex; flex-direction: column; gap: .25rem; }
+  .mint label span { font-size: .8rem; color: var(--muted); }
+  .mint input, .mint select {
+    font: inherit; padding: .5rem .6rem; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+  }
+  .mint .who { flex: 1 1 14rem; }
+  .tally { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 1rem; }
+  .assign { display: flex; gap: .35rem; align-items: center; margin: 0; }
+  .assign input {
+    font: inherit; font-size: .88rem; padding: .3rem .45rem; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+    width: 100%; min-width: 11rem;
+  }
+  .assign button { font-size: .8rem; padding: .3rem .55rem; }
+  td.owner { min-width: 13rem; }
+</style>
+{% endblock %}
+{% block content %}
+<p class="sub"><a href="/admin">← Round {{ round_id }}</a></p>
+<h1>Ballot links</h1>
+<p class="sub">
+  Pre-minted links standing in for invite distribution. This file is also the
+  identity side of the boundary — the address assigned here is what attributes a
+  reviewer's answers on the HR copy of their report.
+</p>
+
+{% if error %}
+  <div class="notice"><strong>Could not do that.</strong> {{ error }}</div>
+{% endif %}
+{% if assigned %}
+  <div class="notice" style="border-color: var(--ok); background: var(--card); color: var(--ink)">
+    Assignment saved for <code>{{ assigned }}</code>.
+  </div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">Mint links</h2>
+  <form method="post" action="/admin/invites" class="mint">
+    <input type="hidden" name="round_id" value="{{ round_id }}">
+    <label>
+      <span>How many</span>
+      <input type="number" name="n" value="2" min="1" max="10" style="width:5rem">
+    </label>
+    <label class="who">
+      <span>For</span>
+      <select name="subject_id">
+        {% for s in subjects %}<option value="{{ s.subject_id }}">{{ s.display_name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="who">
+      <span>Assign to <em style="font-style:normal;opacity:.75">(optional)</em></span>
+      <input type="email" name="email" placeholder="rater@example.com"
+             autocomplete="off" maxlength="254">
+    </label>
+    <button class="primary" type="submit">Mint</button>
+  </form>
+  <p class="muted" style="font-size:.85em; margin-bottom:0">
+    Leave the address blank to mint an unassigned link — one you hand out in person
+    and never attach to a name. You can assign or change an address per row below,
+    including after the link has gone out.
+  </p>
+</div>
+
+{% if rows %}
+<div class="tally">
+  <span class="pill">{{ summary.minted }} minted</span>
+  <span class="pill ok">{{ summary.complete }} returned</span>
+  <span class="pill">{{ summary.in_progress }} in progress</span>
+  <span class="pill">{{ summary.not_opened }} not opened</span>
+  {% if summary.outstanding %}
+    <span class="pill bad">{{ summary.outstanding }} assigned and still outstanding</span>
+  {% endif %}
+  {% if summary.unassigned %}
+    <span class="pill">{{ summary.unassigned }} unassigned</span>
+  {% endif %}
+</div>
+
+<div class="card scroll">
+  <table>
+    <thead>
+      <tr><th>Subject</th><th>Assigned to</th><th>Link</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.display_name }}</td>
+        <td class="owner">
+          {# Editable in place: the address arrives after the link is minted as
+             often as with it, and a separate edit screen for one field would be
+             a page nobody opens. #}
+          <form class="assign" method="post" action="/admin/invites/assign">
+            <input type="hidden" name="round_id" value="{{ round_id }}">
+            <input type="hidden" name="ballot_id" value="{{ r.ballot_id }}">
+            <input type="email" name="email" value="{{ r.email }}"
+                   placeholder="unassigned" autocomplete="off" maxlength="254"
+                   aria-label="Email assigned to {{ r.ballot_id }}">
+            <button type="submit">Save</button>
+          </form>
+        </td>
+        <td><a class="mono" href="/b/{{ r.ballot_id }}">/b/{{ r.ballot_id }}</a></td>
+        <td>
+          {% if r.status in ('submitted', 'frozen') %}
+            <span class="pill ok">{{ r.status }}</span>
+          {% elif r.status == 'in progress' %}
+            <span class="pill">in progress{% if r.progress %} · {{ r.progress }}{% endif %}</span>
+          {% else %}
+            <span class="pill">{{ r.status }}</span>
+            {% if r.assigned %}<div class="muted" style="font-size:.8em">chase</div>{% endif %}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+  <p class="muted">No links minted yet.</p>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">What this page can and cannot tell you</h2>
+  <p class="muted" style="font-size:.9em">
+    <strong>not opened</strong> also covers a reviewer who opened the link and declined —
+    <code>consent.md</code> promises that declining records nothing, so this page must
+    not let you tell the two apart. <strong>in progress</strong> means consent was given
+    and the interview is unfinished; it is read from the checkpoint, since no row
+    reaches <code>responses.db</code> until submission.
+  </p>
+  <p class="muted" style="font-size:.9em">
+    An assigned address makes that reviewer's answers attributable to them on the
+    <strong>HR copy</strong> of the subject's report. That is intended — HR administers the
+    round — and reviewers are told so on the consent screen before they write anything.
+    The <strong>subject copy</strong> of the same report masks names and contact details and
+    attributes nothing.
+  </p>
+  <p class="muted" style="font-size:.9em; margin-bottom:0">
+    Answer content is deliberately kept off <em>this</em> page. It belongs on a report
+    somebody opened on purpose, not on the list HR leaves open while chasing responses.
+  </p>
+</div>
+{% endblock %}

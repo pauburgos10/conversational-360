@@ -1,0 +1,25 @@
+# --- secrets ----------------------------------------------------------------
+# Holds a live OpenAI key locally. Never commit it; Render takes the key as a
+# dashboard secret instead.
+.env
+
+# --- local environment ------------------------------------------------------
+.venv360/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+
+# --- generated at runtime ---------------------------------------------------
+# Everything under data/ is rebuilt: `config.py` creates the directory, and the
+# demo seeds the round on boot. invites.json in particular carries assigned
+# email addresses and must not be published.
+data/*.db
+data/*.sqlite
+data/invites.json
+data/web-settings.json
+data/reports/
+
+# Test-coverage output. Nothing in this project writes it; an empty copy came
+# across from the client repository's root and is ignored rather than kept.
+coverage/

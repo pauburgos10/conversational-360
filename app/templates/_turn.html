@@ -1,0 +1,17 @@
+{% import "_macros.html" as m %}
+{#
+  The HTMX response to one rater reply.
+
+  Appended to #log: the rater's own words, anything the engine wants said about
+  them, and the next question. The composer is swapped out-of-band because it
+  lives outside #log — a guardrail refusal re-presents the SAME question, and
+  rebuilding the composer from `pending` is what makes that fall out for free
+  rather than needing a special case.
+#}
+{{ m.rater_said(said, said_redacted) }}
+{{ m.notice(turn.notice) }}
+{{ m.question(turn.pending) }}
+{{ m.llm_trace(calls, role) }}
+{% if review %}{{ m.review_panel(ballot_id, review) }}{% endif %}
+
+{{ m.composer(ballot_id, turn.pending, turn, oob=true) }}

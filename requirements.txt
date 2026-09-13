@@ -1,0 +1,18 @@
+# Conversational 360° — POC (conversation engine + aggregation/redaction)
+langgraph>=1.0.0,<2.0.0
+langgraph-checkpoint-sqlite>=3.0.0,<4.0.0
+langchain>=1.0.0,<2.0.0
+langchain-openai>=0.3.0,<1.0.0
+pydantic>=2.0.0,<3.0.0
+PyYAML>=6.0,<7.0
+python-dotenv>=1.0.0,<2.0.0
+rich>=13.7
+
+# Web layer (app/) — the manual-test surface. markdown-it-py is already present
+# via rich, and renders the Markdown reports to HTML with no extra dependency.
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+jinja2>=3.1,<4.0
+python-multipart>=0.0.9
+
+pytest>=8.0
