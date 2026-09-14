@@ -42,6 +42,17 @@ def is_demo() -> bool:
     return os.getenv(BANNER_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def is_persistent() -> bool:
+    """Whether what visitors enter survives a restart.
+
+    Keyed on `C360_ROSTER_IN_DATA` because that is set exactly when `data/` is on
+    a persistent disk — the roster only needs moving there when something is
+    being persisted. The banner uses it so it never tells a visitor their work
+    will be wiped when it will not, or kept when it will not.
+    """
+    return os.getenv("C360_ROSTER_IN_DATA", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _authorised(header: str, expected: tuple[str, str]) -> bool:
     import base64
     import binascii

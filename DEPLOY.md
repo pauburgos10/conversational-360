@@ -6,35 +6,101 @@ integrates with GitHub, GitLab.com and Bitbucket. Changes are made there and
 copied here to deploy. Treat this repo as a build artifact: it can be deleted and
 recreated from the canonical source at any time.
 
-The project sits at the repository root, so `render.yaml` is picked up as a
-Blueprint and no Root Directory setting is needed.
+The project sits at the repository root, so no Root Directory setting is needed.
 
 ---
 
-## 1. Create the service from the Blueprint
+## 1. Create a Web Service
 
-Render → **New** → **Blueprint** → connect `pauburgos10/conversational-360`.
+Render → **New** → **Web Service** → connect `pauburgos10/conversational-360`.
 
-Render reads `render.yaml` and proposes one web service, `conversational-360-demo`
-(Docker, free plan, health check `/healthz`). It then prompts for the three
-secrets the file leaves blank:
+**Web Service** is the right type: it gets a public HTTPS URL and runs a
+long-running server. *Static Site* has no server process, and *Private Service*
+has no public URL — only other Render services can reach it, so HR could not.
 
-| Secret | What to enter |
+Fill in the form:
+
+| Field | Value |
 |---|---|
-| `OPENAI_API_KEY` | A key from a **dedicated** OpenAI project with a monthly budget cap — never your personal key. See README, "Letting HR test against a real model" |
-| `C360_DEMO_USER` | HTTP Basic username you will give HR |
-| `C360_DEMO_PASSWORD` | HTTP Basic password. Both this and the user must be set, or the gate stays open |
+| Branch | `main` |
+| Root Directory | *leave blank* |
+| Language / Runtime | **Docker** — Render should detect the `Dockerfile` |
+| Instance type | **Starter** (paid) — see §1a for why free loses data |
+| Health Check Path | `/healthz` — may be under *Advanced* |
 
-The other four variables come from the file and need no input:
+Leave any build or start command empty: the `Dockerfile` defines both, and a
+start command typed here would override its `CMD`.
+
+### Environment variables
+
+Eight, entered by hand. Add the three secrets as **secret** values so they are not
+readable from the service page afterwards.
 
 | Variable | Value | Why |
 |---|---|---|
 | `C360_LLM_MODE` | `stub` | Boot offline. HR opts into live calls from `/admin`; a restart returns here, so an idle demo never spends money |
 | `C360_SEED_ON_BOOT` | `1` | Seeds the synthetic round when the store is empty. Free tiers have ephemeral disks, so without this a cold start shows "not enough responses" everywhere |
 | `C360_DEMO_BANNER` | `1` | Puts "every person here is synthetic" on every page. The seeded subjects have plausible human names, deliberately |
+| `C360_ROSTER_IN_DATA` | `1` | **Required with the disk.** Keeps the subject list on the disk beside the database — see §1a |
 | `OPENAI_MODEL` | `gpt-4o-mini` | ~28 calls per completed interview; a fraction of a cent at this model |
+| `OPENAI_API_KEY` | **secret** | From a **dedicated** OpenAI project with a monthly budget cap — never your personal key. See README, "Letting HR test against a real model" |
+| `C360_DEMO_USER` | **secret** | HTTP Basic username you will give HR |
+| `C360_DEMO_PASSWORD` | **secret** | HTTP Basic password. Both this and the user must be set, or the gate stays open |
 
-Apply, and Render builds from the `Dockerfile`.
+Create the service, and Render builds from the `Dockerfile`.
+
+## 1a. Keep data across restarts: a paid instance and a disk
+
+**Why.** On the free plan the service sleeps after ~15 minutes idle and wakes in a
+fresh container with an empty filesystem. Everything under `/app/data` is lost —
+minted links, assigned addresses, interviews, subjects added through `/admin` —
+and the round is reseeded, so the page looks intact while HR's work is gone.
+
+**Steps** (Render's labels and prices change; check the dashboard as you go):
+
+1. On the service, open **Settings → Instance Type** and choose **Starter**. Render
+   needs a payment method on the workspace first. Paid instances also do not
+   sleep, so the 30–50 second wake-up disappears too.
+2. Open **Disks** → **Add Disk**:
+
+   | Field | Value |
+   |---|---|
+   | Name | `c360-data` |
+   | **Mount Path** | **`/app/data`** — exactly this; the app writes nowhere else |
+   | Size | 1 GB is ample |
+
+3. Add `C360_ROSTER_IN_DATA=1` to the environment (it is in the table above).
+4. Save. Render redeploys with the disk attached.
+
+**Why `C360_ROSTER_IN_DATA` is not optional.** Every file the app writes lives in
+`/app/data` except one: the subject list, `inputs/subjects.csv`, which `/admin`
+appends to. Without the variable, a restart restores the bundled list while the
+disk keeps the database — so a subject added through `/admin` keeps their ballots
+but drops out of the list the redactor masks. **Their name then appears unmasked
+in the subject's copy of every report about them.** With the variable, the live
+list is copied onto the disk on first boot and never overwritten after, so the
+two persist together. `tests/test_persistent_roster.py` reproduces the leak and
+the fix.
+
+**Two consequences to know about**
+
+* **Deploys briefly interrupt the service.** A disk attaches to one instance at a
+  time, so Render stops the old instance before starting the new one instead of
+  switching over with no downtime. Expect a short gap on every push.
+* **Once the disk holds a subject list, it wins.** Editing `inputs/subjects.csv`
+  and redeploying will not change the live list. Add subjects through `/admin`,
+  or delete `/app/data/subjects.csv` from the Render shell to re-copy the bundle.
+
+**The round is still seeded once.** `C360_SEED_ON_BOOT` only seeds an empty
+database, so the first boot on a new disk creates the synthetic round and every
+later boot leaves it — and everything HR added — alone.
+
+### About `render.yaml`
+
+A manually created Web Service **does not read `render.yaml`**. The file stays as
+the written record of what the service needs, and doubles as a Blueprint if you
+ever deploy through Render's Blueprint flow instead. Nothing keeps the two in
+step — if you change a variable in the dashboard, change it in the file too.
 
 ## 2. Check it came up
 
@@ -56,9 +122,9 @@ The URL and the password — nothing else. No install, and it works on a phone.
 
 Tell them two things:
 
-* **Anything they type is wiped when the demo restarts.** The free tier sleeps
-  after ~15 minutes idle and comes back with a fresh disk, so the first click
-  after a pause takes 30–50 seconds and the round resets to its seeded state.
+* **What they enter is kept** on the paid instance with a disk — so they should
+  use test names and addresses only, never a real colleague's. (On the free plan
+  the opposite holds: everything is wiped when the service sleeps.)
 * **Everyone in it is invented.** The banner says so, but say it as well.
 
 ## Controlling what HR sees

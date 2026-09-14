@@ -123,7 +123,13 @@
   <div class="demobar">
     <strong>Demonstration.</strong>
     Every person, rating and comment here is synthetic — no real employee is
-    described. Anything you enter is wiped when the demo restarts.
+    described.
+    {% if demo_persistent %}
+      What you enter is kept between visits — please use test names and
+      addresses only.
+    {% else %}
+      Anything you enter is wiped when the demo restarts.
+    {% endif %}
   </div>
 {% endif %}
 {% block content %}{% endblock %}

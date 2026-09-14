@@ -1,7 +1,9 @@
-# Render Blueprint — read automatically because it sits at the repository root.
+# The service's configuration, in Render Blueprint format.
 #
-# Render → New → Blueprint → connect this repository, and it creates the service
-# from this file, prompting for every value marked `sync: false`. See DEPLOY.md.
+# The demo is deployed as a manually created Web Service (see DEPLOY.md), which
+# does NOT read this file — it is the written record of what that service needs.
+# It also works unchanged as a Blueprint, since it sits at the repository root.
+# Either way, keep it in step with the dashboard by hand.
 #
 # This repository exists to feed Render. The canonical project lives in the
 # client's GitLab; changes are made there and copied here to deploy.
@@ -14,8 +16,19 @@ services:
   - type: web
     name: conversational-360-demo
     runtime: docker
-    plan: free
+    # Paid: persistent disks are not available on the free plan, and a free
+    # instance sleeps when idle and restarts with an empty filesystem — which is
+    # what wiped the minted links. Check Render's current plan names and prices.
+    plan: starter
     healthCheckPath: /healthz
+
+    # Everything the app writes at runtime lands under /app/data: the databases,
+    # invites.json, the LLM-mode setting and — with C360_ROSTER_IN_DATA — the
+    # roster. One disk, one mount, nothing left on the ephemeral filesystem.
+    disk:
+      name: c360-data
+      mountPath: /app/data
+      sizeGB: 1
     envVars:
       # Boot default. HR opts into live calls from the admin console when they
       # want to see real model output; a container restart drops back to stub,
@@ -38,6 +51,13 @@ services:
       - key: C360_SEED_ON_BOOT   # a cold start rebuilds the synthetic round
         value: "1"
       - key: C360_DEMO_BANNER    # say on every page that the data is invented
+        value: "1"
+
+      # REQUIRED with the disk above. The roster is the one file the app writes
+      # outside data/; without this, a restart reverts it, and anyone added
+      # through /admin drops out of the redaction list while their ballots stay
+      # on the disk — so their name appears unmasked in the subject's report.
+      - key: C360_ROSTER_IN_DATA
         value: "1"
       - key: C360_DEMO_USER
         sync: false

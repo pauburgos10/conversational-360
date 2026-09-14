@@ -60,6 +60,7 @@ def _chrome(request: Request) -> dict:
         "roles": deps.ROLES,
         "llm": deps.llm_status(),
         "is_demo": demo.is_demo(),
+        "demo_persistent": demo.is_persistent(),
     }
 
 
