@@ -105,19 +105,33 @@ this copy:
 * It is the only probe that can be reached with **no ratings at all** in that
   competency, so the wording must not refer to "your rating".
 
-`probe_policy` controls session length: `max_probed_competencies` (4),
-`max_followups_per_probe` (2), `max_followups_per_session` (8). Raising these
-deepens the qualitative data and raises abandonment. They are the main lever on
-completion friction.
+`probe_policy` controls session length through four settings:
+`max_probed_competencies`, `max_followups_per_probe`, `max_followups_per_session`
+and `min_words`. Raising the first three deepens the qualitative data and raises
+abandonment — they are the main lever on completion friction. `min_words` is the
+same trade from the other end: a written answer shorter than it is judged
+`too_short` and draws a follow-up, with no model call.
 
-`min_words` (12) is the same trade seen from the other end: an open answer
-shorter than this is judged `too_short` and draws the follow-up of that name,
-with no model call — the deterministic filter decides thin answers on its own.
-Lower it and thinner answers reach the themes stage; raise it and raters are
-asked to elaborate more often.
+The values are deliberately not repeated here. A number copied into this file
+goes stale the first time someone tunes it — this section said `min_words` was
+12 while the file shipped 8. The shipped values are in `questions.json`, and the
+values actually in force are on the admin dashboard.
 
-`qualitative_fixed` holds the client's four existing open questions, asked
-verbatim after the probes.
+**HR can tune all four from the admin dashboard**, under "How written questions
+are chosen", which explains each one in plain language. Those edits are stored as
+overrides in `data/probe_policy.json` and layered over this file — **this file is
+never rewritten by the app**, because it also holds the reviewed probe wording.
+Overrides persist as long as `data/` does, and "Restore shipped defaults" deletes
+them.
+
+`trigger_priority` is **descriptive only**. No code reads it: the order in which
+question types win is fixed in `nodes._trigger_for` (not observed, low, mixed,
+high, general), which is why it is not editable on the dashboard. It is kept, in
+the engine's order, as documentation. Editing it changes nothing.
+
+`qualitative_fixed` holds the client's existing open questions, asked verbatim
+after the probes — always, whatever `max_probed_competencies` is set to. The
+dashboard reads how many there are rather than assuming.
 
 ## `reporting-rules.yaml` — what may be published
 

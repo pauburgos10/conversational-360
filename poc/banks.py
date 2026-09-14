@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass
 from functools import lru_cache
 
-from . import config
+from . import config, policy
 
 
 # Who is reading the question. The instrument is worded for a rater by default —
@@ -127,5 +127,8 @@ def load_bank() -> Bank:
         open_probes=q_raw["open_probes"],
         followup_templates=q_raw["followup_templates"],
         qualitative_fixed=tuple(q_raw["qualitative_fixed"]),
-        probe_policy=q_raw["probe_policy"],
+        # Stored dashboard edits layered over the shipped defaults. Applied here,
+        # inside the cached loader, so every reader of the policy agrees and one
+        # `cache_clear()` from `policy.save_overrides` updates them all at once.
+        probe_policy=policy.apply_overrides(q_raw["probe_policy"]),
     )

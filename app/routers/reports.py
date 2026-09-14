@@ -16,7 +16,8 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
-from poc import reporting, store, trace
+from poc import banks, policy, reporting, store, trace
+from poc.graph import nodes
 from poc.session import DEFAULT_ROUND
 
 from .. import deps, rounds
@@ -26,19 +27,43 @@ router = APIRouter(prefix="/admin", dependencies=[Depends(deps.require_hr)])
 
 @router.get("", response_class=HTMLResponse)
 def dashboard(request: Request, round_id: str = DEFAULT_ROUND,
-              added: str | None = None, error: str | None = None):
+              added: str | None = None, error: str | None = None,
+              policy_saved: str | None = None, policy_error: str | None = None):
     pipe = rounds.pipeline(round_id)
     subject_rows = rounds.subject_state(round_id)
+    effective = banks.load_bank().probe_policy
+    defaults = policy.bundled_defaults()
     return request.app.state.templates.TemplateResponse(
         request,
         "admin.html",
         {
             "round_id": round_id,
             "subjects": subject_rows,
-            "summary": pipe.summary,
             "cohorts": pipe.cohorts,
             "freeze": rounds.round_freeze_info(round_id),
-            "n_cells": len(pipe.cells),
+            # The probe policy HR can tune. The suppression cell counts that used
+            # to sit here were an engineer's diagnostic; each report already
+            # states per cell why a figure is withheld, which is the form HR
+            # actually needs it in.
+            "policy_fields": [
+                {
+                    "key": f.key, "label": f.label,
+                    "help": policy.rendered_help(f, len(banks.load_bank().qualitative_fixed)),
+                    "min": f.minimum, "max": f.maximum,
+                    "value": effective.get(f.key, defaults.get(f.key)),
+                    "default": defaults.get(f.key),
+                    "changed": effective.get(f.key) != defaults.get(f.key),
+                }
+                for f in policy.FIELDS
+            ],
+            "policy_rules": {
+                "low": nodes.LOW_MEAN_MAX,
+                "mixed": nodes.MIXED_SPREAD_MIN,
+                "high": nodes.HIGH_MEAN_MIN,
+            },
+            "n_closing": len(banks.load_bank().qualitative_fixed),
+            "policy_saved": policy_saved,
+            "policy_error": policy_error,
             # Cohorts offered in the add form come from the roster, not from the
             # pipeline: a cohort whose subjects have no ballots yet is absent
             # from `pipe.cohorts`, and it should still be offered.
@@ -110,6 +135,25 @@ def aggregates(round_id: str = DEFAULT_ROUND):
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="aggregates-{round_id}.csv"'},
     )
+
+
+@router.post("/policy")
+async def save_policy(request: Request):
+    """Store edited probe settings as overrides; questions.json is never rewritten."""
+    form = await request.form()
+    try:
+        values = policy.validate(dict(form))
+    except ValueError as exc:
+        return RedirectResponse(f"/admin?policy_error={quote(str(exc))}#policy",
+                                status_code=303)
+    policy.save_overrides(values)
+    return RedirectResponse("/admin?policy_saved=1#policy", status_code=303)
+
+
+@router.post("/policy/reset")
+def reset_policy():
+    policy.reset_overrides()
+    return RedirectResponse("/admin?policy_saved=reset#policy", status_code=303)
 
 
 @router.post("/freeze")

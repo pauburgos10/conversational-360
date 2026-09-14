@@ -18,6 +18,7 @@ data/*.db
 data/*.sqlite
 data/invites.json
 data/web-settings.json
+data/probe_policy.json
 data/reports/
 
 # Test-coverage output. Nothing in this project writes it; an empty copy came

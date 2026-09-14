@@ -8,8 +8,8 @@
     "trigger_priority": [
       "not_observed",
       "low",
-      "high",
       "mixed",
+      "high",
       "default"
     ],
     "note": "Open probes are adaptive: they fire where the Likert pattern carries signal (an extreme score or an internal spread), not on every competency. This keeps the session completable while still collecting qualitative depth where it matters. `not_observed` is the exception to 'where the ratings carry signal' — it fires on the absence of a rating, because a rater who cannot assess a competency is the one person whose partial view would otherwise be lost entirely. It is always optional to answer."

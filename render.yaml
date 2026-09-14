@@ -5,8 +5,8 @@
 # It also works unchanged as a Blueprint, since it sits at the repository root.
 # Either way, keep it in step with the dashboard by hand.
 #
-# This repository exists to feed Render. The canonical project lives in the
-# client's GitLab; changes are made there and copied here to deploy.
+# This repository is the working copy and is what Render deploys. The client's
+# GitLab receives a copy for delivery — see DEPLOY.md, last section.
 #
 # Secrets are deliberately NOT in this file. `sync: false` makes Render prompt for
 # them at deploy time — the whole point of the password gate is defeated if the

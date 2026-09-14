@@ -1,10 +1,9 @@
 # Deploying the demo to Render
 
-This repository exists to feed Render. **The canonical project lives in the
-client's GitLab** (`gitlab.kdsoft.io`), which Render cannot connect to — it only
-integrates with GitHub, GitLab.com and Bitbucket. Changes are made there and
-copied here to deploy. Treat this repo as a build artifact: it can be deleted and
-recreated from the canonical source at any time.
+**This repository is the working copy of the project**, and it is what Render
+deploys. The client's repository on `gitlab.kdsoft.io` receives a copy for
+delivery — see the last section. Render could not deploy from there in any case:
+it only integrates with GitHub, GitLab.com and Bitbucket.
 
 The project sits at the repository root, so no Root Directory setting is needed.
 
@@ -91,6 +90,10 @@ the fix.
   and redeploying will not change the live list. Add subjects through `/admin`,
   or delete `/app/data/subjects.csv` from the Render shell to re-copy the bundle.
 
+**Probe-policy edits persist too.** Settings HR changes on the dashboard are stored
+in `/app/data/probe_policy.json`, so they live on the disk with everything else —
+and, on the free plan, are wiped with everything else.
+
 **The round is still seeded once.** `C360_SEED_ON_BOOT` only seeds an empty
 database, so the first boot on a new disk creates the synthetic round and every
 later boot leaves it — and everything HR added — alone.
@@ -129,27 +132,48 @@ Tell them two things:
 
 ## Controlling what HR sees
 
-Render redeploys on every push to `main`. To change HR's version, copy the
-updated project here from the canonical GitLab repo and push; that push is the
-only moment their demo moves. To freeze it entirely, turn off auto-deploy on the
-service and deploy chosen commits by hand.
+Render redeploys on every push to `main`. Because this is also the repository you
+develop in, **pushing unfinished work to `main` puts it in front of HR.** Two
+ways to keep control:
 
-## Updating from the canonical repo
+* **Work on a branch and merge to `main` when it is ready.** The merge is the only
+  moment HR's demo changes.
+* **Turn off auto-deploy** on the service, and deploy chosen commits by hand.
 
-Copy with a tool that includes hidden files. A Finder drag or `cp -R src/* .`
-**silently skips dotfiles** — that is how `.gitignore` went missing the first time
-this repo was created, which would have published `data/invites.json` and its
-email addresses on the next commit.
+## Delivering to the client repository
+
+The client's repo (`gitlab.kdsoft.io`, project under `paula/conversational-360/`)
+is updated **from** this one, periodically. It is currently behind: the
+probe-policy panel, the persistent roster, and `.dockerignore` exist only here.
+
+Copy with a tool that keeps hidden files. A Finder drag or `cp -R src/* .`
+**silently skips dotfiles** — that is how `.gitignore` went missing when this repo
+was created. Dry-run first: `--delete` removes files on the receiving side, and
+that side is a shared repository.
 
 ```bash
-rsync -a --delete \
+CLIENT="<path to client repo>/paula/conversational-360"
+rsync -a --delete --dry-run --itemize-changes \
   --exclude .git --exclude .venv360 --exclude .env --exclude data \
   --exclude '*.docx' \
-  "<canonical>/paula/conversational-360/" ./
+  ./ "$CLIENT/"                     # read the list, then run again without --dry-run
 ```
 
-Then check before committing: `git status` should show no `.env`, no `data/`
-files, and no `.docx`.
+Four things to settle in the client repo when you do this:
+
+1. **Its `.gitignore` is weaker than this one** and has already let generated
+   files through: commit `a7e3fce` (pushed to `origin/demo-paula`) contains
+   `data/invites.json`, `web-settings.json` and `data/reports/`. The rsync above
+   brings the stronger `.gitignore` across; the tracked files still need
+   `git rm --cached` to stop being committed.
+2. **The client compensation document is in that repo's pushed history** (commit
+   `9b385ad`). Deleting it from the tree does not remove it from history — raise it
+   with whoever administers the repository before rewriting anything.
+3. **Deployment files do not fit its layout.** `DEPLOY.md` and `render.yaml`
+   describe this repo: root layout, GitHub, `main`. Decide whether they belong in
+   the client repo at all, and if so, what they should say there.
+4. Check `git status` there before committing: no `.env`, no `data/` files, no
+   `.docx`.
 
 ## What this deployment is not
 

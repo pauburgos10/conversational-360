@@ -77,6 +77,15 @@ WELCOME = (
 
 _SIGNAL_TRIGGERS = ("low", "mixed", "high", "not_observed")
 
+# The thresholds that decide which kind of written question a competency earns,
+# checked in this order by `_trigger_for`: low, then mixed, then high. Named
+# rather than inlined because the admin dashboard describes these rules to HR,
+# and a number typed into a template would silently stop matching the engine the
+# first time one of these changed.
+LOW_MEAN_MAX = 1.5        # average rating at or below this reads as "low"
+MIXED_SPREAD_MIN = 1      # items differing by at least this much read as "mixed"
+HIGH_MEAN_MIN = 2.7       # average rating at or above this reads as "high"
+
 # "I have no basis to rate this."
 #
 # A 360 asks peers, reports and managers about the same ten competencies, and no
@@ -142,11 +151,11 @@ def _trigger_for(values: list[int], available: dict, n_declined: int = 0) -> str
     mean = sum(values) / len(values)
     spread = max(values) - min(values)
 
-    if mean <= 1.5:
+    if mean <= LOW_MEAN_MAX:
         trigger = "low"
-    elif spread >= 1:
+    elif spread >= MIXED_SPREAD_MIN:
         trigger = "mixed"
-    elif mean >= 2.7:
+    elif mean >= HIGH_MEAN_MIN:
         trigger = "high"
     else:
         trigger = "default"

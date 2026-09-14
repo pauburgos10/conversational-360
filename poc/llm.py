@@ -77,6 +77,18 @@ _EFFECT = re.compile(
 )
 _STATIVE_ONLY = re.compile(r"^(?:\W|\b(?:is|are|was|were|has|have|had|be|been|very|really|quite|always|never|good|great|fine|ok|okay|bad|poor|nice|solid|strong|weak|they|he|she|them|a|an|the|and|but|to|of|in|on|at|it|very)\b|\s)*$", re.I)
 
+# Length caps on what the MODEL writes — not on what a rater writes.
+#
+# These bound the model's own output inside the prompts below, and are
+# deliberately independent of `probe_policy.min_words`, which is the floor on a
+# rater's answer. The two used to share the literal 12 by coincidence, which read
+# as if the judge's explanation were tied to the configurable answer floor. It
+# is not, and must not be: raising min_words to demand longer answers would then
+# also make the model write longer justifications, which is meaningless.
+JUDGE_REASON_MAX_WORDS = 12
+PROBE_MAX_WORDS = 40
+FOLLOWUP_MAX_WORDS = 35
+
 # Fallback only. The live value is questions.json `probe_policy.min_words`: it
 # sits with the other session-length levers because raising it buys depth by
 # spending follow-ups, which is the same trade max_followups_per_probe makes.
@@ -256,7 +268,7 @@ class OpenAILLM:
         prompt = (
             "You are conducting an anonymous 360-degree feedback interview.\n"
             "Rephrase the question below so it flows naturally after what the rater has just "
-            "answered. Keep the same intent and scope. One question only, under 40 words. "
+            f"answered. Keep the same intent and scope. One question only, under {PROBE_MAX_WORDS} words. "
             "Do not add commentary, do not give advice, do not mention scores.\n\n"
             f"Context (rater's ratings): {likert_context}\n"
             f"Question: {base}"
@@ -280,7 +292,7 @@ class OpenAILLM:
         prompt = (
             "You are conducting an anonymous 360-degree feedback interview. The rater's answer "
             "was not specific enough. Ask ONE short follow-up in the spirit of the guidance "
-            "below. Do not evaluate the answer, do not give advice, under 35 words.\n\n"
+            f"below. Do not evaluate the answer, do not give advice, under {FOLLOWUP_MAX_WORDS} words.\n\n"
             f"Original question: {question}\nTheir answer: {answer}\nGuidance: {template}"
         )
         t0 = time.perf_counter()
@@ -311,7 +323,8 @@ class OpenAILLM:
             class _Verdict(BaseModel):
                 specific: bool = Field(description="Is the answer grounded in an observable, concrete situation?")
                 gap: str = Field(description="One of: none, needs_example, needs_behaviour, needs_effect")
-                reason: str = Field(description="Under 12 words")
+                # The length of the model's explanation — see JUDGE_REASON_MAX_WORDS.
+                reason: str = Field(description=f"Under {JUDGE_REASON_MAX_WORDS} words")
 
             structured = self._llm.with_structured_output(_Verdict)
             out = structured.invoke(

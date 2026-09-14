@@ -11,6 +11,22 @@ from poc.graph.build import build_graph
 
 
 @pytest.fixture(autouse=True)
+def isolate_probe_policy(tmp_path, monkeypatch):
+    """Never let a developer's saved dashboard edits leak into the suite.
+
+    `data/probe_policy.json` is written by the admin screen and layered over
+    questions.json. A value saved while clicking around locally — min_words
+    raised to 30, say — would silently change how every interview test behaves,
+    the same ambient-configuration failure `force_stub_mode` guards against.
+    """
+    from poc import banks, policy
+    monkeypatch.setattr(policy, "OVERRIDES_PATH", tmp_path / "probe_policy.json")
+    banks.load_bank.cache_clear()
+    yield
+    banks.load_bank.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def force_stub_mode(monkeypatch):
     """Pin every test to the offline client, whatever the machine has set.
 
