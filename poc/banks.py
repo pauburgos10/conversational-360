@@ -8,6 +8,7 @@ and competency bank" requirement means at POC scale.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -15,12 +16,51 @@ from . import config, policy
 
 
 # Who is reading the question. The instrument is worded for a rater by default —
-# "does this person…" — and that wording is wrong on the one surface where the
+# "does {subject}…" — and that wording is wrong on the one surface where the
 # reader is the subject themselves. `self_prompt` in the bank carries the second
 # person singular for that case, so the switch is editorial rather than a regex
 # applied to someone's carefully worded instrument at render time.
 RATER = "rater"
 SELF = "self"
+
+# Rater wording names the person once, by first name, where it used to say
+# "they": HR testing found non-native readers took "they" as plural. The name is
+# a placeholder in the bank rather than a pronoun swap in code, because "do they"
+# → "does Ana" is grammar, and the bank's authors are the ones who should write it.
+SUBJECT_TOKEN = "{subject}"
+# Used when there is no name to put in — a bank rendered outside an interview,
+# or a subject with a blank display name. Reads correctly in every template.
+NO_NAME = "this person"
+_SUBJECT = re.compile(r"(^|[.!?]\s+)?\{subject\}")
+
+
+def first_name(display_name: str | None) -> str:
+    """The name the questions use: the first word of the display name.
+
+    "María José Pérez" comes out as "María". That is a known limit, accepted for
+    now rather than adding a second name field every subject would need filled in.
+    """
+    parts = (display_name or "").split()
+    return parts[0] if parts else ""
+
+
+def fill_subject(text: str, name: str | None) -> str:
+    """Put the subject's name into bank wording.
+
+    Plain substitution, not `str.format`: the text may also carry `{competency}`
+    or a brace a model wrote, and neither should raise here. The fallback is
+    capitalised at the start of a sentence, where "this person seems…" would
+    otherwise open a question in lower case.
+    """
+    name = name or NO_NAME
+
+    def sub(m: re.Match) -> str:
+        lead = m.group(1)
+        if lead is None:
+            return name
+        return lead + name[:1].upper() + name[1:]
+
+    return _SUBJECT.sub(sub, text or "")
 
 
 @dataclass(frozen=True)
@@ -31,16 +71,18 @@ class Item:
     competency_id: str
     self_prompt: str = ""
 
-    def prompt_for(self, perspective: str = RATER) -> str:
-        """The wording this reader should see.
+    def prompt_for(self, perspective: str = RATER, subject: str = "") -> str:
+        """The wording this reader should see, with `subject`'s name filled in.
 
         Falls back to the rater phrasing rather than raising: a bank edited to add
         an item and not its `self_prompt` should render a slightly-off question,
-        not take down the self-assessment page.
+        not take down the self-assessment page. On that fallback the subject is
+        reading about themselves, so `subject` is ignored and the question says
+        "this person" rather than addressing them by name in the third person.
         """
-        if perspective == SELF and self.self_prompt:
-            return self.self_prompt
-        return self.prompt
+        if perspective == SELF:
+            return self.self_prompt or fill_subject(self.prompt, "")
+        return fill_subject(self.prompt, subject)
 
 
 @dataclass(frozen=True)

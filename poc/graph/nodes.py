@@ -247,6 +247,9 @@ def next_question(state: InterviewState) -> InterviewState:
     likert = dict(state.get("likert", {}))
     declined = set(state.get("declined", []))
     update: InterviewState = {}
+    # Filled in here, as the question is written into state, so the checkpoint
+    # holds what the rater actually saw and a resumed session redisplays it.
+    name = banks.first_name(state.get("subject_display"))
 
     while True:
         if stage == STAGE_CONSENT:
@@ -298,7 +301,7 @@ def next_question(state: InterviewState) -> InterviewState:
                             "competency_id": comp.id,
                             "competency_name": comp.name,
                             "label": item.label,
-                            "text": item.prompt,
+                            "text": item.prompt_for(banks.RATER, name),
                             "anchors": bank.anchors_for(comp.id),
                             "scale": bank.scale["labels"],
                             "expects": "1-3",
@@ -348,19 +351,22 @@ def next_question(state: InterviewState) -> InterviewState:
 
             entry = plan[idx]
             comp = bank.competency(entry["competency_id"])
+            # The model rewords the placeholder, not the name, which is filled in
+            # after: it keeps the name out of the model call and stops a
+            # paraphrase swapping it for a full name or a gendered pronoun.
             if gap:
-                text = llm.followup(
+                text = banks.fill_subject(llm.followup(
                     bank.followup_templates.get(gap, bank.followup_templates["too_short"]),
                     question=comp.name, answer="",
-                )
+                ), name)
                 ref = f"probe:{comp.id}:f{state.get('followups_current', 0)}"
             else:
                 template = bank.open_probes[comp.id][entry["trigger"]]
                 values = [likert[i.id] for i in comp.items if i.id in likert]
-                text = llm.probe(
+                text = banks.fill_subject(llm.probe(
                     template, comp.name,
                     likert_context=f"{comp.name}: {values}",
-                )
+                ), name)
                 ref = f"probe:{comp.id}"
 
             return {
@@ -394,13 +400,13 @@ def next_question(state: InterviewState) -> InterviewState:
                 continue
             q = bank.qualitative_fixed[qidx]
             if gap:
-                text = llm.followup(
+                text = banks.fill_subject(llm.followup(
                     bank.followup_templates.get(gap, bank.followup_templates["too_short"]),
                     question=q["prompt"], answer="",
-                )
+                ), name)
                 ref = f"{q['id']}:f{state.get('followups_current', 0)}"
             else:
-                text = q["prompt"]
+                text = banks.fill_subject(q["prompt"], name)
                 ref = q["id"]
             return {
                 **update, "stage": stage,

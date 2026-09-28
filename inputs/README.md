@@ -69,7 +69,7 @@ different people:
 ```json
 {
   "id": "C1.1", "label": "Commitment Fulfilment",
-  "prompt": "Does this person consistently meet agreed deadlines...?",
+  "prompt": "Does {subject} consistently meet agreed deadlines...?",
   "self_prompt": "Do you consistently meet agreed deadlines...?"
 }
 ```
@@ -83,6 +83,25 @@ Adding an item without a `self_prompt` will not break the page — it falls back
 `prompt` — but the subject then reads a question written about somebody else.
 `tests/test_web.py::test_every_item_carries_both_wordings` fails on the omission
 so it is caught at edit time rather than in a round.
+
+### `{subject}` — the person's first name
+
+Every question a rater reads — `prompt` here, and every probe and closing
+question in `questions.json` — names the person with `{subject}`, which the
+interview replaces with the first word of their display name ("Ana Torres" →
+"Ana"). HR testing found that readers working in a second language took "they"
+as plural, so:
+
+- Use `{subject}` once, as the person doing the thing: *"Does {subject} take
+  ownership…"*, *"the quality of {subject}'s decisions"*. Then "they/their" for
+  the rest of the sentence, where it can only point back to that person.
+- Write the grammar for a name: *"Does {subject}…"*, not *"Do {subject}…"*.
+- Never use "he" or "she".
+- `self_prompt` does not use `{subject}` — the reader is the person.
+
+A missing name renders as "this person" (capitalised at the start of a sentence),
+so the question still reads. `tests/test_subject_name.py` fails if a question
+loses the placeholder or if one reaches a rater's screen unfilled.
 
 ## `questions.json` — how it is asked
 

@@ -271,6 +271,7 @@ class Interview:
         likert = state.get("likert", {})
 
         declined = set(state.get("declined", []))
+        name = banks.first_name(state.get("subject_display"))
 
         competencies = []
         for comp in bank.competencies:
@@ -283,7 +284,7 @@ class Interview:
             # the most likely one to want back — they have since been asked about
             # the competency and may have remembered something.
             questions = [
-                {"id": i.id, "label": i.label, "prompt": i.prompt,
+                {"id": i.id, "label": i.label, "prompt": i.prompt_for(banks.RATER, name),
                  "value": likert.get(i.id), "declined": i.id in declined}
                 for i in comp.items if i.id in likert or i.id in declined
             ]
@@ -293,7 +294,8 @@ class Interview:
                     "anchors": bank.anchors_for(comp.id), "questions": questions,
                 })
 
-        labels = {q["id"]: q["prompt"] for q in bank.qualitative_fixed}
+        labels = {q["id"]: banks.fill_subject(q["prompt"], name)
+                  for q in bank.qualitative_fixed}
         answers = []
         for a in state.get("open_answers", []):
             ref = a["ref"]

@@ -205,6 +205,25 @@ THEME_LEXICON: list[tuple[str, str, str, str, list[str]]] = [
 # Clients
 # --------------------------------------------------------------------------
 
+# Bank wording carries a `{subject}` placeholder that the interview fills with
+# the subject's first name after the model has worded the question. Told to keep
+# it, the model leaves the name to code; if it drops the token anyway the
+# question still reads, just without the name.
+KEEP_SUBJECT = (
+    "The text {subject} stands for the person being reviewed: keep it exactly as "
+    "written, and refer to them as they/their anywhere else, never he or she."
+)
+
+
+def _with_competency(template: str, competency_name: str) -> str:
+    """Substitute `{competency}` and nothing else.
+
+    Not `str.format`: the template also carries `{subject}`, which is filled
+    later, and format would raise on it.
+    """
+    return template.replace("{competency}", competency_name)
+
+
 class StubLLM:
     """Deterministic. Same input, same output, no network."""
 
@@ -212,7 +231,7 @@ class StubLLM:
 
     def probe(self, template: str, competency_name: str, **_: object) -> str:
         t0 = time.perf_counter()
-        text = template.format(competency=competency_name)
+        text = _with_competency(template, competency_name)
         trace.record("probe", trace.STUB, trace.TEMPLATE,
                      (time.perf_counter() - t0) * 1000, subject=competency_name)
         return text
@@ -264,12 +283,13 @@ class OpenAILLM:
         self._model = settings.model
 
     def probe(self, template: str, competency_name: str, likert_context: str = "", **_: object) -> str:
-        base = template.format(competency=competency_name)
+        base = _with_competency(template, competency_name)
         prompt = (
             "You are conducting an anonymous 360-degree feedback interview.\n"
             "Rephrase the question below so it flows naturally after what the rater has just "
             f"answered. Keep the same intent and scope. One question only, under {PROBE_MAX_WORDS} words. "
-            "Do not add commentary, do not give advice, do not mention scores.\n\n"
+            "Do not add commentary, do not give advice, do not mention scores. "
+            f"{KEEP_SUBJECT}\n\n"
             f"Context (rater's ratings): {likert_context}\n"
             f"Question: {base}"
         )
@@ -292,7 +312,8 @@ class OpenAILLM:
         prompt = (
             "You are conducting an anonymous 360-degree feedback interview. The rater's answer "
             "was not specific enough. Ask ONE short follow-up in the spirit of the guidance "
-            f"below. Do not evaluate the answer, do not give advice, under {FOLLOWUP_MAX_WORDS} words.\n\n"
+            f"below. Do not evaluate the answer, do not give advice, under {FOLLOWUP_MAX_WORDS} words. "
+            f"{KEEP_SUBJECT}\n\n"
             f"Original question: {question}\nTheir answer: {answer}\nGuidance: {template}"
         )
         t0 = time.perf_counter()

@@ -520,7 +520,7 @@ set:
 
 | Read by | Field | Wording |
 |---|---|---|
-| Rater | `prompt`, `anchor_sets` | *"Does this person consistently meet agreed deadlines…?"* |
+| Rater | `prompt`, `anchor_sets` | *"Does {subject} consistently meet agreed deadlines…?"* — `{subject}` is the first name |
 | Subject | `self_prompt`, `anchor_sets_self` | *"Do you consistently meet agreed deadlines…?"* |
 
 The self-assessment is the one surface where the reader **is** the person being

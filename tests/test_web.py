@@ -1156,6 +1156,14 @@ def test_the_rater_interview_keeps_the_third_person_wording(client):
     assert "Do you consistently meet" not in page
 
 
+def test_the_rater_is_asked_about_the_subject_by_first_name(client):
+    """HR testing: "they" read as plural. The page must show the name, not the token."""
+    ballot_id = start(client)
+    page = reply(client, ballot_id, "yes").text
+    assert "Does Subject consistently meet agreed deadlines" in page  # "Subject One"
+    assert "{subject}" not in page
+
+
 def test_every_item_carries_both_wordings(client):
     """A bank edit that adds an item and forgets `self_prompt` degrades quietly.
 

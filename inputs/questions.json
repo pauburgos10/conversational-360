@@ -16,69 +16,69 @@
   },
   "open_probes": {
     "C1": {
-      "low": "You rated {competency} on the lower side. Without naming anyone else, what does a missed commitment usually look like in practice here?",
-      "high": "You rated {competency} highly. Can you describe a specific delivery where that reliability made a visible difference?",
-      "mixed": "Your ratings on {competency} were uneven. Which part holds up well, and which part tends to slip?",
-      "not_observed": "You marked part of {competency} as not observed, which is useful in itself. Is there anything you have seen about how they handle commitments — even indirectly? \"Nothing to add\" is a perfectly good answer.",
-      "default": "Thinking about {competency}, what is one concrete example that shaped your rating?"
+      "low": "You rated {subject}'s {competency} on the lower side. Without naming anyone else, what does a missed commitment usually look like in practice here?",
+      "high": "You rated {subject}'s {competency} highly. Can you describe a specific delivery where that reliability made a visible difference?",
+      "mixed": "Your ratings on {subject}'s {competency} were uneven. Which part holds up well, and which part tends to slip?",
+      "not_observed": "You marked part of {competency} as not observed, which is useful in itself. Is there anything you have seen about how {subject} handles commitments — even indirectly? \"Nothing to add\" is a perfectly good answer.",
+      "default": "Thinking about {subject}'s {competency}, what is one concrete example that shaped your rating?"
     },
     "C2": {
-      "low": "Where does this person most often need a nudge before things move forward?",
-      "high": "Can you describe a situation where they took something end-to-end with no supervision at all?",
-      "mixed": "They seem strong on some parts of autonomy and less so on others. Where does the line fall?",
-      "not_observed": "You have not seen enough of {competency} to rate it. Is there anything about how independently they work that you have picked up, even second-hand? Feel free to say nothing to add.",
-      "default": "What does their level of autonomy look like on a typical piece of work?"
+      "low": "Where does {subject} most often need a nudge before things move forward?",
+      "high": "Can you describe a situation where {subject} took something end-to-end with no supervision at all?",
+      "mixed": "{subject} seems strong on some parts of autonomy and less so on others. Where does the line fall?",
+      "not_observed": "You have not seen enough of {competency} to rate it. Is there anything about how independently {subject} works that you have picked up, even second-hand? Feel free to say nothing to add.",
+      "default": "What does {subject}'s level of autonomy look like on a typical piece of work?"
     },
     "C3": {
-      "low": "What kinds of decisions do they tend to escalate that you would expect them to make themselves?",
-      "high": "Can you describe a decision they made under uncertainty that turned out well?",
-      "mixed": "How would you describe the gap between the quality of their decisions and their willingness to make them?",
-      "not_observed": "{competency} was outside what you have observed. Is there anything about how they approach decisions you would still want on record? \"Nothing to add\" is fine.",
-      "default": "How do they behave when a call has to be made without complete information?"
+      "low": "What kinds of decisions does {subject} tend to escalate that you would expect them to make themselves?",
+      "high": "Can you describe a decision {subject} made under uncertainty that turned out well?",
+      "mixed": "How would you describe the gap between the quality of {subject}'s decisions and their willingness to make them?",
+      "not_observed": "{competency} was outside what you have observed. Is there anything about how {subject} approaches decisions you would still want on record? \"Nothing to add\" is fine.",
+      "default": "How does {subject} behave when a call has to be made without complete information?"
     },
     "C4": {
-      "low": "What is one process they own that has stayed manual or dependent on them being present?",
-      "high": "What have they simplified or automated that the team still benefits from?",
-      "mixed": "They appear to improve some things but not others. What explains the difference?",
-      "not_observed": "You marked {competency} as not observed. Have you noticed anything about how they approach improving the way work gets done? Say nothing to add if not.",
-      "default": "What have they changed about how the work gets done since you started working with them?"
+      "low": "What is one process {subject} owns that has stayed manual or dependent on them being present?",
+      "high": "What has {subject} simplified or automated that the team still benefits from?",
+      "mixed": "{subject} appears to improve some things but not others. What explains the difference?",
+      "not_observed": "You marked {competency} as not observed. Have you noticed anything about how {subject} approaches improving the way work gets done? Say nothing to add if not.",
+      "default": "What has {subject} changed about how the work gets done since you started working with them?"
     },
     "C5": {
-      "low": "Where do their priorities most often diverge from what the business needs?",
-      "high": "Can you describe an occasion where they moved something forward that was bigger than their own remit?",
-      "mixed": "Their impact seems uneven across the business. Where does it land, and where does it stop?",
-      "not_observed": "{competency} is outside your line of sight. Is there anything about their effect beyond their own tasks that you have noticed anyway? \"Nothing to add\" is fine.",
-      "default": "Beyond their own tasks, where do you see the effect of their work?"
+      "low": "Where do {subject}'s priorities most often diverge from what the business needs?",
+      "high": "Can you describe an occasion where {subject} moved something forward that was bigger than their own remit?",
+      "mixed": "{subject}'s impact seems uneven across the business. Where does it land, and where does it stop?",
+      "not_observed": "{competency} is outside your line of sight. Is there anything about {subject}'s effect beyond their own tasks that you have noticed anyway? \"Nothing to add\" is fine.",
+      "default": "Beyond their own tasks, where do you see the effect of {subject}'s work?"
     },
     "C6": {
-      "low": "What tends to get missed about the customer's actual problem?",
-      "high": "Can you describe a time they went past the stated request to solve the real problem?",
-      "mixed": "How does their customer focus change between internal and external customers?",
-      "not_observed": "You have not seen enough of {competency} to judge it. Is there anything about how they treat the people their work serves that you would still add? Nothing to add is a fine answer.",
-      "default": "Do they work to finish a task, or to solve the underlying problem? What makes you say that?"
+      "low": "What does {subject} tend to miss about the customer's actual problem?",
+      "high": "Can you describe a time {subject} went past the stated request to solve the real problem?",
+      "mixed": "How does {subject}'s customer focus change between internal and external customers?",
+      "not_observed": "You have not seen enough of {competency} to judge it. Is there anything about how {subject} treats the people their work serves that you would still add? Nothing to add is a fine answer.",
+      "default": "Does {subject} work to finish a task, or to solve the underlying problem? What makes you say that?"
     },
     "B1": {
-      "not_observed": "You marked {competency} as not observed. Is there anything about working alongside them that you would still want to mention? \"Nothing to add\" is fine.",
-      "default": "How do they behave when work has to be shared across several people who disagree about the approach?"
+      "not_observed": "You marked {competency} as not observed. Is there anything about working alongside {subject} that you would still want to mention? \"Nothing to add\" is fine.",
+      "default": "How does {subject} behave when work has to be shared across several people who disagree about the approach?"
     },
     "B2": {
-      "not_observed": "{competency} was outside what you have seen. Have you noticed anything about the effect they have on other people's growth? Say nothing to add if not.",
-      "default": "What has someone else learned to do because of them?"
+      "not_observed": "{competency} was outside what you have seen. Have you noticed anything about the effect {subject} has on other people's growth? Say nothing to add if not.",
+      "default": "What has someone else learned to do because of {subject}?"
     },
     "B3": {
-      "not_observed": "You have not seen enough of {competency} to rate it. Is there anything about their willingness to help that you have picked up anyway? \"Nothing to add\" is fine.",
-      "default": "When someone needs help outside their objectives, what actually happens?"
+      "not_observed": "You have not seen enough of {competency} to rate it. Is there anything about {subject}'s willingness to help that you have picked up anyway? \"Nothing to add\" is fine.",
+      "default": "When someone needs help outside {subject}'s objectives, what actually happens?"
     },
     "B4": {
-      "low": "What kind of problem keeps coming back after they have handled it?",
-      "high": "What did the team learn to handle on its own after they solved something?",
-      "not_observed": "{competency} is outside what you have observed. Is there anything about how they deal with problems that you would still add? Nothing to add is a perfectly good answer.",
-      "default": "After they resolve an issue, is the team more able to handle a similar one? What makes you say that?"
+      "low": "What kind of problem keeps coming back after {subject} has handled it?",
+      "high": "What did the team learn to handle on its own after {subject} solved something?",
+      "not_observed": "{competency} is outside what you have observed. Is there anything about how {subject} deals with problems that you would still add? Nothing to add is a perfectly good answer.",
+      "default": "After {subject} resolves an issue, is the team more able to handle a similar one? What makes you say that?"
     }
   },
   "followup_templates": {
     "needs_example": "That is useful. Can you ground it in one specific occasion — roughly when it happened and what you observed?",
-    "needs_behaviour": "Could you describe what they actually did or said, rather than the overall impression it left?",
+    "needs_behaviour": "Could you describe what {subject} actually did or said, rather than the overall impression it left?",
     "needs_effect": "And what changed as a result — for the work, the team, or the customer?",
     "too_short": "Could you say a little more? Even two or three sentences of detail helps the person receiving this."
   },
@@ -86,22 +86,22 @@
     {
       "id": "Q1",
       "theme": "strengths",
-      "prompt": "Describe a recent situation where this person's delivery or decision-making prevented a problem or produced a strong result."
+      "prompt": "Describe a recent situation where {subject}'s delivery or decision-making prevented a problem or produced a strong result."
     },
     {
       "id": "Q2",
       "theme": "strengths",
-      "prompt": "In which areas do they already act as a senior or reference point for the team?"
+      "prompt": "In which areas does {subject} already act as a senior or reference point for the team?"
     },
     {
       "id": "Q3",
       "theme": "opportunities",
-      "prompt": "What should they start doing, or stop doing, to increase their impact and autonomy?"
+      "prompt": "What should {subject} start doing, or stop doing, to increase their impact and autonomy?"
     },
     {
       "id": "Q4",
       "theme": "opportunities",
-      "prompt": "What skills or attitudes are missing for their next career step?"
+      "prompt": "What skills or attitudes is {subject} missing for their next career step?"
     }
   ]
 }

@@ -56,17 +56,17 @@
       "items": [
         {
           "id": "C1.1", "label": "Commitment Fulfilment",
-          "prompt": "Does this person consistently meet agreed deadlines for their deliverables without the need for constant reminders?",
+          "prompt": "Does {subject} consistently meet agreed deadlines for their deliverables without the need for constant reminders?",
           "self_prompt": "Do you consistently meet agreed deadlines for your deliverables without needing constant reminders?"
         },
         {
           "id": "C1.2", "label": "Quality and Excellence",
-          "prompt": "Does the final outcome of their work meet the expected quality standards, requiring minimal corrections or revisions?",
+          "prompt": "Does the final outcome of {subject}'s work meet the expected quality standards, requiring minimal corrections or revisions?",
           "self_prompt": "Does the final outcome of your work meet the expected quality standards, requiring minimal corrections or revisions?"
         },
         {
           "id": "C1.3", "label": "Obstacle Management",
-          "prompt": "In the event of delays or unforeseen issues, do they communicate risks in a timely manner and propose an action plan to minimise the impact on the final outcome?",
+          "prompt": "In the event of delays or unforeseen issues, does {subject} communicate risks in a timely manner and propose an action plan to minimise the impact on the final outcome?",
           "self_prompt": "When delays or unforeseen issues come up, do you communicate the risk in good time and propose an action plan to minimise the impact on the final outcome?"
         }
       ]
@@ -78,17 +78,17 @@
       "items": [
         {
           "id": "C2.1", "label": "End-to-End Management",
-          "prompt": "Do they follow up on their tasks with attention to detail without the need for constant reminders?",
+          "prompt": "Does {subject} follow up on their tasks with attention to detail without the need for constant reminders?",
           "self_prompt": "Do you follow up on your tasks with attention to detail without needing constant reminders?"
         },
         {
           "id": "C2.2", "label": "Proactivity",
-          "prompt": "Do they act before circumstances require it in order to prevent problems or create opportunities?",
+          "prompt": "Does {subject} act before circumstances require it in order to prevent problems or create opportunities?",
           "self_prompt": "Do you act before circumstances require it, in order to prevent problems or create opportunities?"
         },
         {
           "id": "C2.3", "label": "Accountability (Ownership)",
-          "prompt": "Do they take full ownership of the matters within their area, ensuring that results are achieved?",
+          "prompt": "Does {subject} take full ownership of the matters within their area, ensuring that results are achieved?",
           "self_prompt": "Do you take full ownership of the matters within your area, making sure results are achieved?"
         }
       ]
@@ -100,17 +100,17 @@
       "items": [
         {
           "id": "C3.1", "label": "Quality of Decisions",
-          "prompt": "Do they make decisions based on data and sound reasoning that benefit the business in the long term?",
+          "prompt": "Does {subject} make decisions based on data and sound reasoning that benefit the business in the long term?",
           "self_prompt": "Do you make decisions based on data and sound reasoning that benefit the business in the long term?"
         },
         {
           "id": "C3.2", "label": "Independence of Judgement",
-          "prompt": "Are they able to decide on a course of action in situations of uncertainty without escalating operational matters to their manager?",
+          "prompt": "Is {subject} able to decide on a course of action in situations of uncertainty without escalating operational matters to their manager?",
           "self_prompt": "Are you able to decide on a course of action in situations of uncertainty, without escalating operational matters to your manager?"
         },
         {
           "id": "C3.3", "label": "Impact Analysis",
-          "prompt": "Before making decisions, do they assess the impact their actions will have on other areas of the organisation?",
+          "prompt": "Before making decisions, does {subject} assess the impact their actions will have on other areas of the organisation?",
           "self_prompt": "Before making decisions, do you assess the impact your actions will have on other areas of the organisation?"
         }
       ]
@@ -122,17 +122,17 @@
       "items": [
         {
           "id": "C4.1", "label": "Simplification and Technology",
-          "prompt": "Do they propose the use of technology or new methodologies to optimise tasks and reduce complexity?",
+          "prompt": "Does {subject} propose the use of technology or new methodologies to optimise tasks and reduce complexity?",
           "self_prompt": "Do you propose the use of technology or new methodologies to optimise tasks and reduce complexity?"
         },
         {
           "id": "C4.2", "label": "Challenging the Status Quo",
-          "prompt": "Do they constructively question existing processes in order to propose more effective ways of working?",
+          "prompt": "Does {subject} constructively question existing processes in order to propose more effective ways of working?",
           "self_prompt": "Do you constructively question existing processes in order to propose more effective ways of working?"
         },
         {
           "id": "C4.3", "label": "Knowledge Transfer",
-          "prompt": "Do they document and share their processes in such a way that others can execute them, making the system independent of their physical presence?",
+          "prompt": "Does {subject} document and share their processes in such a way that others can execute them, making the system independent of their physical presence?",
           "self_prompt": "Do you document and share your processes in such a way that others can execute them, making the system independent of your physical presence?"
         }
       ]
@@ -144,17 +144,17 @@
       "items": [
         {
           "id": "C5.1", "label": "Strategic Vision",
-          "prompt": "Are their actions and plans aligned with the company's overall objectives, rather than solely with their individual tasks?",
+          "prompt": "Are {subject}'s actions and plans aligned with the company's overall objectives, rather than solely with their individual tasks?",
           "self_prompt": "Are your actions and plans aligned with the company's overall objectives, rather than solely with your individual tasks?"
         },
         {
           "id": "C5.2", "label": "Enthusiasm and Work Environment",
-          "prompt": "Do they promote a positive and energetic environment, facing challenges with a constructive attitude?",
+          "prompt": "Does {subject} promote a positive and energetic environment, facing challenges with a constructive attitude?",
           "self_prompt": "Do you promote a positive and energetic environment, facing challenges with a constructive attitude?"
         },
         {
           "id": "C5.3", "label": "Influence and Alignment",
-          "prompt": "Are they able to align different stakeholders to ensure that a project progresses and delivers the expected impact?",
+          "prompt": "Is {subject} able to align different stakeholders to ensure that a project progresses and delivers the expected impact?",
           "self_prompt": "Are you able to align different stakeholders to ensure that a project progresses and delivers the expected impact?"
         }
       ]
@@ -166,17 +166,17 @@
       "items": [
         {
           "id": "C6.1", "label": "Needs Identification",
-          "prompt": "Do they proactively seek to understand the underlying customer problem, involving the relevant areas before proposing a solution?",
+          "prompt": "Does {subject} proactively seek to understand the underlying customer problem, involving the relevant areas before proposing a solution?",
           "self_prompt": "Do you proactively seek to understand the underlying customer problem, involving the relevant areas before proposing a solution?"
         },
         {
           "id": "C6.2", "label": "Value Added",
-          "prompt": "Do their technical or process decisions consistently prioritise improving the end-user experience or the success of the internal customer?",
+          "prompt": "Do {subject}'s technical or process decisions consistently prioritise improving the end-user experience or the success of the internal customer?",
           "self_prompt": "Do your technical or process decisions consistently prioritise improving the end-user experience or the success of the internal customer?"
         },
         {
           "id": "C6.3", "label": "Collaboration and Collective Success",
-          "prompt": "Do they act with integrity and genuinely support their peers to ensure the customer receives a coherent solution?",
+          "prompt": "Does {subject} act with integrity and genuinely support their peers to ensure the customer receives a coherent solution?",
           "self_prompt": "Do you act with integrity and genuinely support your peers so that the customer receives a coherent solution?"
         }
       ]
@@ -189,12 +189,12 @@
       "items": [
         {
           "id": "B1.1", "label": "Shared Ownership",
-          "prompt": "When work spans several people, do they keep the shared goal visible rather than optimising only for their own part?",
+          "prompt": "When work spans several people, does {subject} keep the shared goal visible rather than optimising only for their own part?",
           "self_prompt": "When work spans several people, do you keep the shared goal visible rather than optimising only for your own part?"
         },
         {
           "id": "B1.2", "label": "Disagreement",
-          "prompt": "When they disagree, do they keep the discussion focused on the problem and leave the working relationship intact?",
+          "prompt": "When {subject} disagrees with someone, do they keep the discussion focused on the problem and leave the working relationship intact?",
           "self_prompt": "When you disagree, do you keep the discussion focused on the problem and leave the working relationship intact?"
         }
       ]
@@ -207,12 +207,12 @@
       "items": [
         {
           "id": "B2.1", "label": "Growing Capability",
-          "prompt": "Do they give others the context and space to take on work that stretches them, rather than absorbing it themselves?",
+          "prompt": "Does {subject} give others the context and space to take on work that stretches them, rather than absorbing it themselves?",
           "self_prompt": "Do you give others the context and space to take on work that stretches them, rather than absorbing it yourself?"
         },
         {
           "id": "B2.2", "label": "Useful Feedback",
-          "prompt": "Do they give feedback that is specific and actionable enough for the other person to do something differently?",
+          "prompt": "Does {subject} give feedback that is specific and actionable enough for the other person to do something differently?",
           "self_prompt": "Do you give feedback that is specific and actionable enough for the other person to do something differently?"
         }
       ]
@@ -225,12 +225,12 @@
       "items": [
         {
           "id": "B3.1", "label": "Availability",
-          "prompt": "When someone needs help that sits outside their own objectives, do they make room for it?",
+          "prompt": "When someone needs help that sits outside {subject}'s own objectives, do they make room for it?",
           "self_prompt": "When someone needs help that sits outside your own objectives, do you make room for it?"
         },
         {
           "id": "B3.2", "label": "Knowledge Sharing",
-          "prompt": "Do they share what they know by default, rather than only when asked directly?",
+          "prompt": "Does {subject} share what they know by default, rather than only when asked directly?",
           "self_prompt": "Do you share what you know by default, rather than only when asked directly?"
         }
       ]
@@ -243,12 +243,12 @@
       "items": [
         {
           "id": "B4.1", "label": "Durable Fixes",
-          "prompt": "When they resolve a problem, does the fix hold — or does the same issue tend to come back?",
+          "prompt": "When {subject} resolves a problem, does the fix hold — or does the same issue tend to come back?",
           "self_prompt": "When you resolve a problem, does the fix hold — or does the same issue tend to come back?"
         },
         {
           "id": "B4.2", "label": "Capability Left Behind",
-          "prompt": "After they solve something, is the team better able to handle a similar situation without them?",
+          "prompt": "After {subject} solves something, is the team better able to handle a similar situation without them?",
           "self_prompt": "After you solve something, is the team better able to handle a similar situation without you?"
         }
       ]
