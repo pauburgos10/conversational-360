@@ -31,7 +31,7 @@ ROLES = {
     ROLE_HR: "HR / Admin",
 }
 
-# The web demo starts offline on purpose: clicking through 26 Likert items should
+# The web demo starts offline on purpose: clicking through the whole Likert battery should
 # not cost anything, and stub mode is what the test suite exercises.
 DEFAULT_LLM_MODE = "stub"
 VALID_LLM_MODES = ("stub", "openai", "auto")

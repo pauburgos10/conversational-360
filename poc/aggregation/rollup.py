@@ -12,6 +12,15 @@ without a parent link.
 Means are flat over ANSWERS rather than over per-ballot averages. That makes the
 dominance rule meaningful: a ballot's share of a cell is literally the share of
 the numbers behind the figure that came from that one rater.
+
+The one exception is the OVERALL cell, which is the weighted combination of its
+dimensions — `Seniority = Delivery (60%) + Competencias Blandas & Valores (40%)`
+from the client's compensation document. Pooling its answers instead would let
+item counts set the weighting: Delivery is three items of eighteen, so a pooled
+overall would give the 60% dimension about 12% of the say. Its `values` stay
+pooled all the same, because suppression asks how many ballots and how
+concentrated they are, and those questions are about the answers behind the
+figure rather than about the arithmetic on top of them.
 """
 
 from __future__ import annotations
@@ -40,6 +49,11 @@ class Cell:
     parent_key: str | None
     values: list[tuple[str, float]] = field(default_factory=list)  # (ballot_id, value)
 
+    # Set only on the overall cell, where the figure is a weighted combination of
+    # its dimensions rather than a pool of its answers. Left None everywhere else
+    # so every other level keeps the flat-over-answers property above.
+    weighted_mean: float | None = None
+
     @property
     def n_ballots(self) -> int:
         return len({b for b, _ in self.values})
@@ -50,6 +64,8 @@ class Cell:
 
     @property
     def mean(self) -> float | None:
+        if self.weighted_mean is not None:
+            return self.weighted_mean
         if not self.values:
             return None
         return sum(v for _, v in self.values) / len(self.values)
@@ -120,7 +136,31 @@ def build_cells(round_data: dict, bank: banks.Bank | None = None) -> dict[str, C
             for cell in (overall, dim, comp, item):
                 cell.values.append((ballot_id, value))
 
+    _apply_dimension_weights(cells, bank)
     return cells
+
+
+def _apply_dimension_weights(cells: dict[str, Cell], bank: banks.Bank) -> None:
+    """Make each overall cell the weighted combination of its dimensions.
+
+    Weights are renormalised over the dimensions that actually have answers. A
+    round where nobody rated a whole dimension — every item declined as "not
+    observed", say — would otherwise have its overall dragged toward zero by a
+    missing 60%, which would read as a low score rather than as absent data.
+    """
+    weights = {d["id"]: float(d["weight"]) for d in bank.dimensions}
+
+    for cell in cells.values():
+        if cell.level != LEVEL_OVERALL:
+            continue
+        present = [
+            (weights.get(c.level_id, 0.0), c.mean)
+            for c in cells.values()
+            if c.level == LEVEL_DIMENSION and c.parent_key == cell.key and c.mean is not None
+        ]
+        total = sum(w for w, _ in present)
+        if total > 0:
+            cell.weighted_mean = sum(w * m for w, m in present) / total
 
 
 def children_of(cells: dict[str, Cell], parent_key: str) -> list[Cell]:

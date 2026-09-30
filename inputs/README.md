@@ -50,16 +50,34 @@ load with a message naming the line.
 
 ## `competencies.json` — the instrument
 
-Ten competencies: `C1`–`C6` ported verbatim from *Compensation Structure 2026*,
-`B1`–`B4` drafted to give shape to the previously vague 40% bucket.
+Six competencies, 18 items, all of them the client's — ported from *Compensation
+Structure 2026*, "Plantilla de Evaluación 360". The `dimensions` and each
+competency's `dimension` and `section` follow that template's own sections:
+
+| Section | `dimension` | Competencies |
+|---|---|---|
+| Sección I: Expertise Técnico | `delivery` (60%) | `C1` Delivery |
+| Sección II A: Competencias Blandas & Valores Pluralit | `soft_skills` (40%) | `C2`–`C6` |
+| Sección II B: Evaluación Cualitativa | — | `qualitative_fixed` in `questions.json` |
+
+**Do not regroup these without checking the template.** All six were once marked
+`core`, which put Autonomy, Decision-Making, Innovation, Systemic Impact and
+Customer Orientation in the 60% dimension when the client puts them in the 40%
+one. `tests/test_instrument_alignment.py` pins the mapping.
+
+Four invented competencies (`B1`–`B4`) were removed at the same time. They had
+been added on the premise that the 40% bucket was under-specified; Sección II A
+specifies it fully, so they diluted the client's own model.
 
 To add a competency: append to `competencies`, give it an `id`, a `dimension`
-(`core` or `behavioural`), an `anchor_set` (`delivery`, `management_impact` or
-`behavioural`), and its `items`. Add a matching entry to `open_probes` in
-`questions.json` or it will collect Likert data only.
+(`delivery` or `soft_skills`), an `anchor_set` (`delivery` or
+`management_impact` — the document defines exactly those two level scales), a
+`section` naming its place in the template, and its `items`. Add a matching entry
+to `open_probes` in `questions.json` or it will collect Likert data only.
 
-`"draft": true` marks wording that has not been through HR/Legal review. All of
-`B1`–`B4` currently carry it.
+Rater prompts carry a `{subject}` placeholder, filled with the subject's first
+name as each question is asked; `self_prompt` addresses the subject directly and
+needs none.
 
 ### Two wordings per item
 

@@ -15,6 +15,11 @@ __pycache__/
 # demo seeds the round on boot. invites.json in particular carries assigned
 # email addresses and must not be published.
 data/*.db
+# SQLite's working files beside an open database. `data/*.db` does not match
+# them, and a stray copy committed next to a live database is a corruption risk.
+data/*.db-shm
+data/*.db-wal
+data/*.db-journal
 data/*.sqlite
 data/invites.json
 data/web-settings.json

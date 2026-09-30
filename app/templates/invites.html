@@ -79,6 +79,9 @@
   {% if summary.unassigned %}
     <span class="pill">{{ summary.unassigned }} unassigned</span>
   {% endif %}
+  {% if summary.started_directly %}
+    <span class="pill">{{ summary.started_directly }} in progress without an invite</span>
+  {% endif %}
 </div>
 
 <div class="card scroll">
@@ -91,6 +94,11 @@
       <tr>
         <td>{{ r.display_name }}</td>
         <td class="owner">
+          {% if not r.invited %}
+            {# Never minted, so there is no invite entry to attach an address to.
+               Listed only so the reviewer can be handed their link back. #}
+            <span class="muted" style="font-size:.88em">Started without an invite</span>
+          {% else %}
           {# Editable in place: the address arrives after the link is minted as
              often as with it, and a separate edit screen for one field would be
              a page nobody opens. #}
@@ -102,8 +110,9 @@
                    aria-label="Email assigned to {{ r.ballot_id }}">
             <button type="submit">Save</button>
           </form>
+          {% endif %}
         </td>
-        <td><a class="mono" href="/b/{{ r.ballot_id }}">/b/{{ r.ballot_id }}</a></td>
+        <td><a class="mono" href="{{ r.link }}">{{ r.link }}</a></td>
         <td>
           {% if r.status in ('submitted', 'frozen') %}
             <span class="pill ok">{{ r.status }}</span>
@@ -131,6 +140,13 @@
     not let you tell the two apart. <strong>in progress</strong> means consent was given
     and the interview is unfinished; it is read from the checkpoint, since no row
     reaches <code>responses.db</code> until submission.
+  </p>
+  <p class="muted" style="font-size:.9em">
+    <strong>Started without an invite</strong> rows are reviews begun from
+    <em>Start a review</em> rather than from a minted link. They are listed while in
+    progress so a reviewer who lost the tab can be sent their link to carry on.
+    One that has not got past the consent screen, or was declined, is not listed,
+    for the same reason as above.
   </p>
   <p class="muted" style="font-size:.9em">
     An assigned address makes that reviewer's answers attributable to them on the

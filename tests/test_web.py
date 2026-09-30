@@ -34,6 +34,16 @@ from poc.graph import nodes
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def n_items() -> int:
+    """How many Likert items the bank holds.
+
+    Derived, never typed. These assertions used to hardcode 26; realigning the
+    instrument to the client's sections dropped it to 18 and broke eight tests
+    that were each asserting a fact about the bank they could have asked for.
+    """
+    return len(banks.load_bank().all_items)
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     """A client on an isolated pair of databases.
@@ -130,7 +140,7 @@ def test_a_whole_interview_completes_over_http(client):
             "SELECT COUNT(*) c FROM likert_answer WHERE ballot_id=?", (ballot_id,)
         ).fetchone()["c"]
     assert row["status"] == "submitted"
-    assert n_likert == 26
+    assert n_likert == n_items()
 
 
 def test_the_url_is_the_resume_handle(client):
@@ -138,7 +148,7 @@ def test_the_url_is_the_resume_handle(client):
     ballot_id = start(client)
     reply(client, ballot_id, "yes")
     first = reply(client, ballot_id, "2")
-    progress = re.search(r">(\d+/26)<", first.text).group(1)
+    progress = re.search(rf">(\d+/{n_items()})<", first.text).group(1)
 
     with TestClient(app) as other:
         resumed = other.get(f"/b/{ballot_id}")
@@ -154,7 +164,8 @@ def test_reopening_the_link_does_not_advance_the_conversation(client):
 
     first = client.get(f"/b/{ballot_id}").text
     second = client.get(f"/b/{ballot_id}").text
-    assert re.search(r">(\d+/26)<", first).group(1) == re.search(r">(\d+/26)<", second).group(1)
+    pat = rf">(\d+/{n_items()})<"
+    assert re.search(pat, first).group(1) == re.search(pat, second).group(1)
 
 
 def test_an_hr_decision_question_is_refused_and_the_question_returns(client):
@@ -572,9 +583,9 @@ def test_the_review_screen_lists_every_rating_and_answer(client):
     ballot_id = start(client)
     r = _to_review(client, ballot_id)
 
-    assert "26 ratings" in r.text
+    assert f"{n_items()} ratings" in r.text
     assert "written answers" in r.text
-    assert r.text.count('name="item_id"') == 26
+    assert r.text.count('name="item_id"') == n_items()
     assert 'action="/b/' in r.text and "/edit/rating" in r.text
 
 
@@ -612,16 +623,25 @@ def test_editing_a_rating_replans_the_probes_and_asks_only_what_is_new(client):
     planned_before = [e["competency_id"]
                       for e in iv._app.get_state(iv._cfg).values["probe_plan"]]
 
-    # Drive C6 to the bottom of the scale so it becomes the strongest signal.
-    for item in banks.load_bank().competency("C6").items:
+    # Any competency the plan skipped will do. Named outright this was C6, which
+    # stopped being unplanned when the instrument shrank from ten competencies
+    # to six — the test then failed on its own premise rather than on the
+    # behaviour it checks.
+    target = next(c.id for c in banks.load_bank().competencies
+                  if c.id not in planned_before)
+
+    # Drive it to the bottom of the scale so it becomes the strongest signal.
+    for item in banks.load_bank().competency(target).items:
         client.post(f"/b/{ballot_id}/edit/rating",
                     data={"item_id": item.id, "value": 1}, follow_redirects=False)
 
     iv = Interview(ballot_id, "S1")
     state = iv._app.get_state(iv._cfg).values
-    assert "C6" not in planned_before
-    assert state["probe_plan"][0]["competency_id"] == "C6"
-    assert state["pending"]["ref"] == "probe:C6"
+    # In the plan, not necessarily first: the plan is built in bank order, so a
+    # competency earlier in the bank still precedes it. What matters is that the
+    # edit put it there and that it is the question now on screen.
+    assert target in [e["competency_id"] for e in state["probe_plan"]]
+    assert state["pending"]["ref"] == f"probe:{target}"
 
     # Answering it returns straight to review, with nothing re-asked.
     r = reply(client, ballot_id,
@@ -629,7 +649,7 @@ def test_editing_a_rating_replans_the_probes_and_asks_only_what_is_new(client):
     assert "Submit</button>" in r.text
 
     after = {a["ref"] for a in Interview(ballot_id, "S1")._app.get_state(iv._cfg).values["open_answers"]}
-    assert after == before | {"probe:C6"}, "an already-answered probe was asked again"
+    assert after == before | {f"probe:{target}"}, "an already-answered probe was asked again"
 
 
 def test_editing_a_written_answer_keeps_it_and_re_scores_the_mask(client):
@@ -756,8 +776,18 @@ def test_a_consented_unfinished_interview_reads_as_in_progress(client):
     """The gap this closes: `responses.db` has no row for this rater at all."""
     ballot_id = start(client)
     r = reply(client, ballot_id, "yes")
-    for _ in range(4):
-        r = reply(client, ballot_id, "2")
+    # Answer four RATINGS, stepping over any written question that interleaves.
+    # Fixed at four replies, this broke when Delivery started earning a probe
+    # immediately after its three items: the fourth reply answered the probe, so
+    # only three ratings were recorded.
+    answered = 0
+    while answered < 4:
+        if 'class="num"' in r.text:
+            r = reply(client, ballot_id, "2")
+            answered += 1
+        else:
+            r = reply(client, ballot_id,
+                      "They caught the vendor delay in week 2 and re-sequenced the plan.")
 
     with store.connect() as conn:
         assert conn.execute(
@@ -767,7 +797,7 @@ def test_a_consented_unfinished_interview_reads_as_in_progress(client):
     state = rounds.ballot_states()[ballot_id]
     assert state.status == rounds.BALLOT_IN_PROGRESS
     assert state.answered == 4
-    assert state.progress == "4/26"
+    assert state.progress == f"4/{n_items()}"
 
 
 def test_an_interview_stopped_before_consent_reads_as_not_opened(client):
@@ -845,7 +875,7 @@ def test_the_invite_list_shows_progress(client):
 
     as_hr(client)
     page = client.get("/admin/invites").text
-    assert "in progress · 3/26" in " ".join(page.split())
+    assert f"in progress · 3/{n_items()}" in " ".join(page.split())
 
 
 # ---------------------------------------------------------------------------
@@ -964,6 +994,66 @@ def test_the_invite_summary_counts_who_is_still_owed(client):
     assert summary["complete"] == 1
     # the one number HR acts on: assigned, and not back yet
     assert summary["outstanding"] == 1
+
+
+# ---------------------------------------------------------------------------
+# reviews started without an invite can be handed back
+# ---------------------------------------------------------------------------
+#
+# "Start a review" mints a ballot id on the click and keeps it only in the
+# checkpoint. A reviewer who closed the tab mid-interview had no way back, and HR
+# no list to find the link on — the demo lost reviews that way.
+
+def test_a_review_started_without_an_invite_is_listed_with_its_link(client):
+    ballot_id = start(client, "S2")
+    reply(client, ballot_id, "yes")
+    reply(client, ballot_id, "2")
+
+    as_hr(client)
+    page = client.get("/admin/invites").text
+    assert f"/b/{ballot_id}?subject=S2" in page
+    assert "Started without an invite" in page
+    assert "1 in progress without an invite" in page
+
+
+def test_the_recovered_link_resumes_the_same_review_about_the_same_person(client):
+    """Without `?subject=` a non-invite ballot falls back to S1 in the heading."""
+    ballot_id = start(client, "S2")
+    reply(client, ballot_id, "yes")
+    reply(client, ballot_id, "2")
+
+    [row] = [r for r in rounds.invite_rows() if r["ballot_id"] == ballot_id]
+    page = client.get(row["link"]).text
+    assert "Feedback on Subject Two" in page
+    assert rounds.ballot_states()[ballot_id].answered == 1, "resumed, not restarted"
+
+
+def test_a_review_stopped_at_consent_or_declined_is_not_listed(client):
+    """The consent promise: declining must read exactly like never opening."""
+    at_consent = start(client)
+    declined = start(client)
+    reply(client, declined, "no")
+
+    ids = {r["ballot_id"] for r in rounds.invite_rows()}
+    assert at_consent not in ids
+    assert declined not in ids
+
+
+def test_reviews_without_an_invite_do_not_count_as_minted_links(client):
+    """They were never minted or assigned, so they must not inflate those counts."""
+    rounds.mint_invites("S1", 1)
+    in_progress = start(client)
+    reply(client, in_progress, "yes")
+    finished = start(client)
+    run_to_end(client, finished)
+
+    rows = rounds.invite_rows()
+    assert finished not in {r["ballot_id"] for r in rows}, "a submitted review needs no link"
+    summary = rounds.invite_summary(rows)
+    assert summary["minted"] == 1
+    assert summary["unassigned"] == 1
+    assert summary["in_progress"] == 0
+    assert summary["started_directly"] == 1
 
 
 def test_the_response_store_alone_cannot_attribute(client):
@@ -1126,10 +1216,10 @@ def test_the_round_pages_show_the_three_self_states(client):
                 follow_redirects=False)
 
     landing = " ".join(client.get("/").text.split())
-    assert f"in progress · {len(ids)}/26" in landing
+    assert f"in progress · {len(ids)}/{n_items()}" in landing
 
     as_hr(client)
-    assert f"in progress · {len(ids)}/26" in " ".join(client.get("/admin").text.split())
+    assert f"in progress · {len(ids)}/{n_items()}" in " ".join(client.get("/admin").text.split())
 
 
 # ---------------------------------------------------------------------------

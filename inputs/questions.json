@@ -56,24 +56,6 @@
       "mixed": "How does {subject}'s customer focus change between internal and external customers?",
       "not_observed": "You have not seen enough of {competency} to judge it. Is there anything about how {subject} treats the people their work serves that you would still add? Nothing to add is a fine answer.",
       "default": "Does {subject} work to finish a task, or to solve the underlying problem? What makes you say that?"
-    },
-    "B1": {
-      "not_observed": "You marked {competency} as not observed. Is there anything about working alongside {subject} that you would still want to mention? \"Nothing to add\" is fine.",
-      "default": "How does {subject} behave when work has to be shared across several people who disagree about the approach?"
-    },
-    "B2": {
-      "not_observed": "{competency} was outside what you have seen. Have you noticed anything about the effect {subject} has on other people's growth? Say nothing to add if not.",
-      "default": "What has someone else learned to do because of {subject}?"
-    },
-    "B3": {
-      "not_observed": "You have not seen enough of {competency} to rate it. Is there anything about {subject}'s willingness to help that you have picked up anyway? \"Nothing to add\" is fine.",
-      "default": "When someone needs help outside {subject}'s objectives, what actually happens?"
-    },
-    "B4": {
-      "low": "What kind of problem keeps coming back after {subject} has handled it?",
-      "high": "What did the team learn to handle on its own after {subject} solved something?",
-      "not_observed": "{competency} is outside what you have observed. Is there anything about how {subject} deals with problems that you would still add? Nothing to add is a perfectly good answer.",
-      "default": "After {subject} resolves an issue, is the team more able to handle a similar one? What makes you say that?"
     }
   },
   "followup_templates": {

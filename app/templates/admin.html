@@ -217,9 +217,11 @@ numbers <code>python -m poc.cli_report</code> writes.</p>
         never use up a slot a later competency with a signal would need.</li>
     </ol>
     <p>
-      One more rule: if no behavioural competency has had a question yet and one is
-      still to come, the last available slot is kept for it — so the 40% behavioural
-      dimension collects written evidence and not only ratings.
+      Two further rules stop a dimension from collecting ratings only. A competency
+      with no signal keeps its slot when it is the last chance for its dimension —
+      which is why Delivery, the sole competency in its own dimension, always earns
+      a question. And the final slot is held for a dimension that has nothing yet,
+      while a competency belonging to it is still to come.
     </p>
     <p class="muted">
       These rules are fixed in the engine rather than editable here, and the wording

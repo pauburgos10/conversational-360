@@ -22,7 +22,7 @@ short version a new session needs first.
 
 ```bash
 python3 -m venv .venv360 && ./.venv360/bin/pip install -r requirements.txt
-./.venv360/bin/python -m pytest tests/ -q                # 402 tests; offline, no API key
+./.venv360/bin/python -m pytest tests/ -q                # 430 tests; offline, no API key
 ./.venv360/bin/python -m uvicorn app.main:app --reload   # web UI on :8000
 ./.venv360/bin/python -m poc.seed_ballots                # WIPES data/responses.db first
 ./.venv360/bin/python -m poc.cli_report --freeze         # aggregate, write data/reports/
@@ -51,6 +51,27 @@ and `PLAN.md` §3.1 before touching reporting, redaction or consent.
 - This diverges from the capstone brief ("no attributable feedback to anyone") on
   the client's instruction — open decision, `PLAN.md` §9.6.
 
+## The instrument mirrors the client's sections — do not regroup it
+
+`inputs/competencies.json` follows the compensation document's evaluation
+template ("Plantilla de Evaluación 360"):
+
+| Section | `dimension` | Competencies |
+|---|---|---|
+| Sección I: Expertise Técnico | `delivery` 60% | C1 |
+| Sección II A: Competencias Blandas & Valores | `soft_skills` 40% | C2–C6 |
+| Sección II B: Evaluación Cualitativa | — | `qualitative_fixed` |
+
+All six were once `core`, putting five of the client's soft-skill competencies in
+the 60% dimension. Four invented competencies (B1–B4) were withdrawn at the same
+time: they filled a gap that did not exist. `tests/test_instrument_alignment.py`
+pins all of it. See PLAN.md §1.1 and README "The instrument follows the client's
+own sections".
+
+The **overall figure is weighted** 60/40 across the two dimensions, not pooled
+across items — pooling gave the 60% dimension about 12% of the say. Its `values`
+stay pooled so suppression still counts the answers underneath.
+
 ## Invariants that fail silently when broken
 
 - **Persistent disk ⇒ `C360_ROSTER_IN_DATA=1`.** With `data/` on a disk (Render,
@@ -70,8 +91,18 @@ and `PLAN.md` §3.1 before touching reporting, redaction or consent.
 - **Only settings the engine reads may be editable.** `trigger_priority` in
   `questions.json` is descriptive only; the real order lives in `nodes._trigger_for`.
 - **Never type an engine number into a template or doc — derive it.** Trigger
-  thresholds are constants in `poc/graph/nodes.py`; the closing-question count
-  comes from the bank. Hand-copied numbers have gone stale three times.
+  thresholds are constants in `poc/graph/nodes.py`; the closing-question count and
+  the item total come from the bank. Hand-copied numbers have gone stale four
+  times now — the item count alone broke eight tests when the instrument shrank
+  from 26 items to 18.
+- **Probe planning must leave no dimension with ratings only.** Two rules do it: a
+  no-signal competency keeps its slot when it is its dimension's last chance, and
+  the final slot is held for a dimension with nothing planned. Delivery is a
+  dimension of one sitting first in bank order, so without the first rule the 60%
+  dimension gets no written evidence. Do not key either rule on a dimension name.
+- **Rater prompts carry `{subject}`**, filled with the subject's first name;
+  `self_prompt` addresses the subject directly. A new item without the
+  placeholder fails `tests/test_subject_name.py`.
 
 ## Tests that enforce the design — do not weaken them
 

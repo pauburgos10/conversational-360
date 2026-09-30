@@ -438,12 +438,45 @@ def invite_rows(round_id: str = DEFAULT_ROUND) -> list[dict]:
                 "subject_id": subject_id,
                 "display_name": subjects[subject_id]["display_name"],
                 "ballot_id": invite.ballot_id,
+                "link": f"/b/{invite.ballot_id}",
+                "invited": True,
                 "email": invite.email,
                 "assigned": invite.assigned,
                 "status": state.status if state else BALLOT_NOT_OPENED,
                 "progress": state.progress if state else "",
                 "complete": bool(state) and state.status in (BALLOT_SUBMITTED, BALLOT_FROZEN),
             })
+
+    # Reviews started from "Start a review" rather than an invite. Their ballot id
+    # was minted on the click and lives only in the checkpoint, so a reviewer who
+    # closed the tab had no way back and HR no way to hand them one. Only the
+    # in-progress ones are listed: a submitted review needs no link, and one that
+    # stopped before consent or was declined must stay invisible (`ballot_states`
+    # already leaves those out, which is the promise consent.md makes).
+    #
+    # The link carries `?subject=`: `/b/<id>` resolves the subject through the
+    # invite file, and for a ballot that is not in it the page would fall back to
+    # S1 and head the conversation with the wrong person's name.
+    invited_ids = {i.ballot_id for invites in minted.values() for i in invites}
+    direct = sorted(
+        (s for s in states.values()
+         if s.status == BALLOT_IN_PROGRESS and s.ballot_id not in invited_ids),
+        key=lambda s: (s.subject_id, s.ballot_id),
+    )
+    for state in direct:
+        subject = subjects.get(state.subject_id)
+        rows.append({
+            "subject_id": state.subject_id,
+            "display_name": subject["display_name"] if subject else state.subject_id,
+            "ballot_id": state.ballot_id,
+            "link": f"/b/{state.ballot_id}?subject={state.subject_id}",
+            "invited": False,
+            "email": "",
+            "assigned": False,
+            "status": state.status,
+            "progress": state.progress,
+            "complete": False,
+        })
     return rows
 
 
@@ -452,15 +485,21 @@ def invite_summary(rows: list[dict]) -> dict[str, int]:
 
     `outstanding` is the number HR actually acts on — assigned links that have
     not come back, i.e. the people there is someone to chase about.
+
+    Every invite count is over minted links only. A review started without an
+    invite was never minted or assigned, so counting it would inflate "minted"
+    and "unassigned" with links HR never handed out; it gets its own count.
     """
+    invited = [r for r in rows if r.get("invited", True)]
     return {
-        "minted": len(rows),
-        "assigned": sum(1 for r in rows if r["assigned"]),
-        "unassigned": sum(1 for r in rows if not r["assigned"]),
-        "complete": sum(1 for r in rows if r["complete"]),
-        "in_progress": sum(1 for r in rows if r["status"] == BALLOT_IN_PROGRESS),
-        "not_opened": sum(1 for r in rows if r["status"] == BALLOT_NOT_OPENED),
-        "outstanding": sum(1 for r in rows if r["assigned"] and not r["complete"]),
+        "minted": len(invited),
+        "assigned": sum(1 for r in invited if r["assigned"]),
+        "unassigned": sum(1 for r in invited if not r["assigned"]),
+        "complete": sum(1 for r in invited if r["complete"]),
+        "in_progress": sum(1 for r in invited if r["status"] == BALLOT_IN_PROGRESS),
+        "not_opened": sum(1 for r in invited if r["status"] == BALLOT_NOT_OPENED),
+        "outstanding": sum(1 for r in invited if r["assigned"] and not r["complete"]),
+        "started_directly": len(rows) - len(invited),
     }
 
 

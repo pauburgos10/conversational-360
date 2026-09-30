@@ -142,7 +142,7 @@ def seed(reset: bool = True, seed_value: int = 20260825) -> dict:
                 items = [i for i in items if i.id in {"C1.1", "C1.2"}]
 
             # COMPLEMENTARY: on S2, C4 is answered by only three raters. The
-            # behavioural dimension around it stays published, which leaves C4
+            # soft-skills dimension around it stays published, which leaves C4
             # recoverable as the residual unless a sibling is also suppressed.
             if sid == "S2" and b >= 3:
                 items = [i for i in items if i.id not in c4_items]

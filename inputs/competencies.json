@@ -1,6 +1,6 @@
 {
-  "model_version": "1.0.0",
-  "source": "Pluralit Core Team - Compensation Structure 2026 (core C1-C6, verbatim); Real-world Project #03 brief (behavioural B1-B4, drafted)",
+  "model_version": "2.0.0",
+  "source": "Pluralit Core Team - Compensation Structure 2026, 'Plantilla de Evaluación 360'. Dimensions and competencies follow that document's sections: Sección I (Expertise Técnico) and Sección II A (Competencias Blandas & Valores Pluralit). Sección II B is qualitative and lives in questions.json as qualitative_fixed.",
   "scale": {
     "min": 1,
     "max": 3,
@@ -20,11 +20,6 @@
       "1": "Needs frequent guidance to progress on complex tasks or to take operational decisions. Tends to focus on completing the immediate task without evaluating the impact on other areas or the underlying customer problem.",
       "2": "Takes ownership of their matters and makes data-grounded decisions that benefit the business. Collaborates openly with peers, prioritises the customer experience and proposes improvements to simplify their processes.",
       "3": "Acts with full strategic autonomy, aligning stakeholders and celebrating collective success. Is a reference who designs systems independent of their presence, innovates for the organisation and sustains positive energy in the face of adversity."
-    },
-    "behavioural": {
-      "1": "Works effectively on their own scope but rarely extends beyond it. Support for others is reactive and depends on being asked.",
-      "2": "Collaborates openly and reliably, shares what they know, and helps peers when it is needed without being chased.",
-      "3": "Actively raises the capability of those around them. Others come out of the interaction more able to handle similar situations on their own."
     }
   },
   "anchor_sets_self": {
@@ -37,219 +32,188 @@
       "1": "You need frequent guidance to progress on complex tasks or to take operational decisions. You tend to focus on completing the immediate task without evaluating the impact on other areas or the underlying customer problem.",
       "2": "You take ownership of your matters and make data-grounded decisions that benefit the business. You collaborate openly with peers, prioritise the customer experience and propose improvements to simplify your processes.",
       "3": "You act with full strategic autonomy, aligning stakeholders and celebrating collective success. You are a reference who designs systems independent of your presence, innovates for the organisation and sustains positive energy in the face of adversity."
-    },
-    "behavioural": {
-      "1": "You work effectively on your own scope but rarely extend beyond it. Your support for others is reactive and depends on being asked.",
-      "2": "You collaborate openly and reliably, share what you know, and help peers when it is needed without being chased.",
-      "3": "You actively raise the capability of those around you. Others come out of the interaction more able to handle similar situations on their own."
     }
   },
   "dimensions": [
-    { "id": "core", "label": "Delivery & Impact", "weight": 0.6, "note": "Maps to the client's 60% Delivery dimension" },
-    { "id": "behavioural", "label": "Soft Skills & Pluralit Values", "weight": 0.4, "note": "Gives structure to the client's previously under-specified 40% bucket" }
+    {
+      "id": "delivery",
+      "label": "Delivery",
+      "weight": 0.6,
+      "note": "Sección I: Expertise Técnico — Capacidad de Delivery only"
+    },
+    {
+      "id": "soft_skills",
+      "label": "Soft Skills & Pluralit Values",
+      "weight": 0.4,
+      "note": "Sección II A: Autonomía, Decisión, Innovación, Impacto Sistémico, Cliente"
+    }
   ],
   "competencies": [
     {
-      "id": "C1", "dimension": "core", "anchor_set": "delivery",
+      "id": "C1",
+      "dimension": "delivery",
+      "section": "I. Capacidad de Delivery",
+      "anchor_set": "delivery",
       "name": "Delivery",
       "definition": "Ability to execute what has been agreed and deliver tangible results with quality and within defined timelines.",
       "items": [
         {
-          "id": "C1.1", "label": "Commitment Fulfilment",
+          "id": "C1.1",
+          "label": "Commitment Fulfilment",
           "prompt": "Does {subject} consistently meet agreed deadlines for their deliverables without the need for constant reminders?",
           "self_prompt": "Do you consistently meet agreed deadlines for your deliverables without needing constant reminders?"
         },
         {
-          "id": "C1.2", "label": "Quality and Excellence",
+          "id": "C1.2",
+          "label": "Quality and Excellence",
           "prompt": "Does the final outcome of {subject}'s work meet the expected quality standards, requiring minimal corrections or revisions?",
           "self_prompt": "Does the final outcome of your work meet the expected quality standards, requiring minimal corrections or revisions?"
         },
         {
-          "id": "C1.3", "label": "Obstacle Management",
+          "id": "C1.3",
+          "label": "Obstacle Management",
           "prompt": "In the event of delays or unforeseen issues, does {subject} communicate risks in a timely manner and propose an action plan to minimise the impact on the final outcome?",
           "self_prompt": "When delays or unforeseen issues come up, do you communicate the risk in good time and propose an action plan to minimise the impact on the final outcome?"
         }
       ]
     },
     {
-      "id": "C2", "dimension": "core", "anchor_set": "management_impact",
+      "id": "C2",
+      "dimension": "soft_skills",
+      "section": "II A.1 Nivel de Autonomía",
+      "anchor_set": "management_impact",
       "name": "Level of Autonomy",
       "definition": "Ability to progress without direct supervision.",
       "items": [
         {
-          "id": "C2.1", "label": "End-to-End Management",
+          "id": "C2.1",
+          "label": "End-to-End Management",
           "prompt": "Does {subject} follow up on their tasks with attention to detail without the need for constant reminders?",
           "self_prompt": "Do you follow up on your tasks with attention to detail without needing constant reminders?"
         },
         {
-          "id": "C2.2", "label": "Proactivity",
+          "id": "C2.2",
+          "label": "Proactivity",
           "prompt": "Does {subject} act before circumstances require it in order to prevent problems or create opportunities?",
           "self_prompt": "Do you act before circumstances require it, in order to prevent problems or create opportunities?"
         },
         {
-          "id": "C2.3", "label": "Accountability (Ownership)",
+          "id": "C2.3",
+          "label": "Accountability (Ownership)",
           "prompt": "Does {subject} take full ownership of the matters within their area, ensuring that results are achieved?",
           "self_prompt": "Do you take full ownership of the matters within your area, making sure results are achieved?"
         }
       ]
     },
     {
-      "id": "C3", "dimension": "core", "anchor_set": "management_impact",
+      "id": "C3",
+      "dimension": "soft_skills",
+      "section": "II A.2 Madurez en Toma de Decisiones",
+      "anchor_set": "management_impact",
       "name": "Maturity in Decision-Making",
       "definition": "Judgement and independence in decision-making.",
       "items": [
         {
-          "id": "C3.1", "label": "Quality of Decisions",
+          "id": "C3.1",
+          "label": "Quality of Decisions",
           "prompt": "Does {subject} make decisions based on data and sound reasoning that benefit the business in the long term?",
           "self_prompt": "Do you make decisions based on data and sound reasoning that benefit the business in the long term?"
         },
         {
-          "id": "C3.2", "label": "Independence of Judgement",
+          "id": "C3.2",
+          "label": "Independence of Judgement",
           "prompt": "Is {subject} able to decide on a course of action in situations of uncertainty without escalating operational matters to their manager?",
           "self_prompt": "Are you able to decide on a course of action in situations of uncertainty, without escalating operational matters to your manager?"
         },
         {
-          "id": "C3.3", "label": "Impact Analysis",
+          "id": "C3.3",
+          "label": "Impact Analysis",
           "prompt": "Before making decisions, does {subject} assess the impact their actions will have on other areas of the organisation?",
           "self_prompt": "Before making decisions, do you assess the impact your actions will have on other areas of the organisation?"
         }
       ]
     },
     {
-      "id": "C4", "dimension": "core", "anchor_set": "management_impact",
+      "id": "C4",
+      "dimension": "soft_skills",
+      "section": "II A.3 Innovación y Mejora",
+      "anchor_set": "management_impact",
       "name": "Ability to Innovate and Improve the System",
       "definition": "Process evolution and the ability to make oneself replaceable.",
       "items": [
         {
-          "id": "C4.1", "label": "Simplification and Technology",
+          "id": "C4.1",
+          "label": "Simplification and Technology",
           "prompt": "Does {subject} propose the use of technology or new methodologies to optimise tasks and reduce complexity?",
           "self_prompt": "Do you propose the use of technology or new methodologies to optimise tasks and reduce complexity?"
         },
         {
-          "id": "C4.2", "label": "Challenging the Status Quo",
+          "id": "C4.2",
+          "label": "Challenging the Status Quo",
           "prompt": "Does {subject} constructively question existing processes in order to propose more effective ways of working?",
           "self_prompt": "Do you constructively question existing processes in order to propose more effective ways of working?"
         },
         {
-          "id": "C4.3", "label": "Knowledge Transfer",
+          "id": "C4.3",
+          "label": "Knowledge Transfer",
           "prompt": "Does {subject} document and share their processes in such a way that others can execute them, making the system independent of their physical presence?",
           "self_prompt": "Do you document and share your processes in such a way that others can execute them, making the system independent of your physical presence?"
         }
       ]
     },
     {
-      "id": "C5", "dimension": "core", "anchor_set": "management_impact",
+      "id": "C5",
+      "dimension": "soft_skills",
+      "section": "II A.4 Impacto Sistémico",
+      "anchor_set": "management_impact",
       "name": "Systemic Impact on the Business",
       "definition": "Value added to the organisation.",
       "items": [
         {
-          "id": "C5.1", "label": "Strategic Vision",
+          "id": "C5.1",
+          "label": "Strategic Vision",
           "prompt": "Are {subject}'s actions and plans aligned with the company's overall objectives, rather than solely with their individual tasks?",
           "self_prompt": "Are your actions and plans aligned with the company's overall objectives, rather than solely with your individual tasks?"
         },
         {
-          "id": "C5.2", "label": "Enthusiasm and Work Environment",
-          "prompt": "Does {subject} promote a positive and energetic environment, facing challenges with a constructive attitude?",
-          "self_prompt": "Do you promote a positive and energetic environment, facing challenges with a constructive attitude?"
+          "id": "C5.2",
+          "label": "Results Orientation",
+          "prompt": "Does {subject} insist on reaching the highest standards of excellence to ensure the business grows?",
+          "self_prompt": "Do you insist on reaching the highest standards of excellence to ensure the business grows?"
         },
         {
-          "id": "C5.3", "label": "Influence and Alignment",
+          "id": "C5.3",
+          "label": "Influence and Alignment",
           "prompt": "Is {subject} able to align different stakeholders to ensure that a project progresses and delivers the expected impact?",
           "self_prompt": "Are you able to align different stakeholders to ensure that a project progresses and delivers the expected impact?"
         }
       ]
     },
     {
-      "id": "C6", "dimension": "core", "anchor_set": "management_impact",
+      "id": "C6",
+      "dimension": "soft_skills",
+      "section": "II A.5 Orientación al cliente externo e interno",
+      "anchor_set": "management_impact",
       "name": "Customer Orientation",
       "definition": "Acting client-centrically for internal and external customers.",
       "items": [
         {
-          "id": "C6.1", "label": "Needs Identification",
+          "id": "C6.1",
+          "label": "Needs Identification",
           "prompt": "Does {subject} proactively seek to understand the underlying customer problem, involving the relevant areas before proposing a solution?",
           "self_prompt": "Do you proactively seek to understand the underlying customer problem, involving the relevant areas before proposing a solution?"
         },
         {
-          "id": "C6.2", "label": "Value Added",
+          "id": "C6.2",
+          "label": "Value Added",
           "prompt": "Do {subject}'s technical or process decisions consistently prioritise improving the end-user experience or the success of the internal customer?",
           "self_prompt": "Do your technical or process decisions consistently prioritise improving the end-user experience or the success of the internal customer?"
         },
         {
-          "id": "C6.3", "label": "Collaboration and Collective Success",
+          "id": "C6.3",
+          "label": "Collaboration and Collective Success",
           "prompt": "Does {subject} act with integrity and genuinely support their peers to ensure the customer receives a coherent solution?",
           "self_prompt": "Do you act with integrity and genuinely support your peers so that the customer receives a coherent solution?"
-        }
-      ]
-    },
-    {
-      "id": "B1", "dimension": "behavioural", "anchor_set": "behavioural",
-      "name": "Ability to Work with Others",
-      "definition": "Working effectively across people and teams, including under disagreement.",
-      "draft": true,
-      "items": [
-        {
-          "id": "B1.1", "label": "Shared Ownership",
-          "prompt": "When work spans several people, does {subject} keep the shared goal visible rather than optimising only for their own part?",
-          "self_prompt": "When work spans several people, do you keep the shared goal visible rather than optimising only for your own part?"
-        },
-        {
-          "id": "B1.2", "label": "Disagreement",
-          "prompt": "When {subject} disagrees with someone, do they keep the discussion focused on the problem and leave the working relationship intact?",
-          "self_prompt": "When you disagree, do you keep the discussion focused on the problem and leave the working relationship intact?"
-        }
-      ]
-    },
-    {
-      "id": "B2", "dimension": "behavioural", "anchor_set": "behavioural",
-      "name": "Ability to Develop Others",
-      "definition": "Deliberately raising the capability of the people around them.",
-      "draft": true,
-      "items": [
-        {
-          "id": "B2.1", "label": "Growing Capability",
-          "prompt": "Does {subject} give others the context and space to take on work that stretches them, rather than absorbing it themselves?",
-          "self_prompt": "Do you give others the context and space to take on work that stretches them, rather than absorbing it yourself?"
-        },
-        {
-          "id": "B2.2", "label": "Useful Feedback",
-          "prompt": "Does {subject} give feedback that is specific and actionable enough for the other person to do something differently?",
-          "self_prompt": "Do you give feedback that is specific and actionable enough for the other person to do something differently?"
-        }
-      ]
-    },
-    {
-      "id": "B3", "dimension": "behavioural", "anchor_set": "behavioural",
-      "name": "Willingness to Help Others",
-      "definition": "Availability and generosity with time and knowledge.",
-      "draft": true,
-      "items": [
-        {
-          "id": "B3.1", "label": "Availability",
-          "prompt": "When someone needs help that sits outside {subject}'s own objectives, do they make room for it?",
-          "self_prompt": "When someone needs help that sits outside your own objectives, do you make room for it?"
-        },
-        {
-          "id": "B3.2", "label": "Knowledge Sharing",
-          "prompt": "Does {subject} share what they know by default, rather than only when asked directly?",
-          "self_prompt": "Do you share what you know by default, rather than only when asked directly?"
-        }
-      ]
-    },
-    {
-      "id": "B4", "dimension": "behavioural", "anchor_set": "behavioural",
-      "name": "Constructive Problem Solving",
-      "definition": "Resolving issues so that the team is more likely to be able to solve similar things in the future.",
-      "draft": true,
-      "items": [
-        {
-          "id": "B4.1", "label": "Durable Fixes",
-          "prompt": "When {subject} resolves a problem, does the fix hold — or does the same issue tend to come back?",
-          "self_prompt": "When you resolve a problem, does the fix hold — or does the same issue tend to come back?"
-        },
-        {
-          "id": "B4.2", "label": "Capability Left Behind",
-          "prompt": "After {subject} solves something, is the team better able to handle a similar situation without them?",
-          "self_prompt": "After you solve something, is the team better able to handle a similar situation without you?"
         }
       ]
     }

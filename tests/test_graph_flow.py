@@ -345,17 +345,29 @@ def test_probes_target_signal_not_every_competency():
     assert by_comp.get("C1") == "mixed"
 
 
-def test_the_behavioural_dimension_always_gets_a_probe():
-    """Core competencies win on signal nearly every time; without this the 40%
-    dimension would only ever collect Likert data."""
+def test_no_dimension_is_left_with_ratings_only():
+    """Every dimension earns at least one written question, whatever the pattern.
+
+    This used to name the behavioural dimension, which was the one at risk while
+    it sat last in bank order with four competencies. After the instrument was
+    realigned to the client's sections the exposure moved to Delivery: a single
+    competency, first in order, dropped on the first pass whenever its ratings
+    carry no signal — and it is the 60% dimension. The rule is now about any
+    dimension with nothing planned, so it protects whichever one is exposed.
+    """
     bank = load_bank()
-    likert = {i.id: 2 for i in bank.all_items}
-    for cid in ("C1", "C2", "C3", "C4"):
-        for item in bank.competency(cid).items:
-            likert[item.id] = 1
-    plan = plan_probes(likert, bank)
-    dims = {bank.competency(p["competency_id"]).dimension for p in plan}
-    assert "behavioural" in dims
+    all_dims = {d["id"] for d in bank.dimensions}
+
+    for label, likert in (
+        ("no signal anywhere", {i.id: 2 for i in bank.all_items}),
+        ("signal only outside Delivery",
+         {i.id: (2 if i.competency_id == "C1" else 1) for i in bank.all_items}),
+        ("signal only in Delivery",
+         {i.id: (1 if i.competency_id == "C1" else 2) for i in bank.all_items}),
+    ):
+        plan = plan_probes(likert, bank)
+        dims = {bank.competency(p["competency_id"]).dimension for p in plan}
+        assert dims == all_dims, f"{label}: {all_dims - dims} got no written question"
 
 
 def test_probe_planning_is_deterministic():

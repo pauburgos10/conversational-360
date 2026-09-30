@@ -88,7 +88,7 @@ HIGH_MEAN_MIN = 2.7       # average rating at or above this reads as "high"
 
 # "I have no basis to rate this."
 #
-# A 360 asks peers, reports and managers about the same ten competencies, and no
+# A 360 asks peers, reports and managers about the same competencies, and no
 # single rater has seen all of them. Without this option the instrument forces a
 # number for things the rater has never witnessed, which does not produce missing
 # data — it produces invented data, and the invented value lands in the average
@@ -169,7 +169,7 @@ def plan_probes(likert: dict[str, int], bank: banks.Bank,
                 declined: set[str] | list[str] | tuple[str, ...] = ()) -> list[dict[str, str]]:
     """Choose which competencies get an open probe, in the order they are asked.
 
-    Probing all ten competencies would be accurate and unusable — completion
+    Probing every competency would be accurate and unusable — completion
     friction is an evaluation criterion in its own right. So probes go where the
     ratings carry signal: an extreme score, or disagreement between the items
     inside one competency. Everything else stays Likert-only.
@@ -189,11 +189,17 @@ def plan_probes(likert: dict[str, int], bank: banks.Bank,
     * A competency with no signal at all (every item rated the same middling 2)
       takes a slot only when there are too few competencies left to fill the
       budget anyway — so it can never crowd out a real signal that follows it.
-    * The last free slot is held for the behavioural dimension while any
-      behavioural competency is still ahead. Core competencies win on signal
-      nearly every time, and without the reservation the 40% dimension would
-      only ever collect Likert data — precisely the gap this project exists to
-      close.
+    * The last free slot is held for a dimension that has no probe yet, while a
+      competency from such a dimension is still ahead. Without it, one dimension
+      can collect Likert data only.
+
+      This rule used to name the behavioural dimension outright. Once the
+      instrument was realigned to the client's sections, the dimension at risk
+      flipped: Delivery is now a single competency sitting first in bank order,
+      so it is skipped whenever its ratings are unremarkable and slots are
+      scarce — and it is the dimension carrying 60% of the weight. Keying on
+      "a dimension with nothing planned yet" protects whichever one is exposed,
+      rather than whichever one was exposed when the rule was written.
     """
     policy = bank.probe_policy
     limit = int(policy.get("max_probed_competencies", 4))
@@ -201,7 +207,7 @@ def plan_probes(likert: dict[str, int], bank: banks.Bank,
     declined = set(declined)
 
     plan: list[dict[str, str]] = []
-    behavioural_planned = False
+    probed_dimensions: set[str] = set()
 
     for order, comp in enumerate(competencies):
         free = limit - len(plan)
@@ -223,15 +229,30 @@ def plan_probes(likert: dict[str, int], bank: banks.Bank,
         if trigger is None:
             continue
 
-        is_behavioural = comp.dimension == "behavioural"
-        if (not is_behavioural and not behavioural_planned and free == 1
-                and any(c.dimension == "behavioural" for c in competencies[order + 1:])):
+        # Is this the last competency that could put this dimension on the plan?
+        last_chance = (comp.dimension not in probed_dimensions
+                       and not any(c.dimension == comp.dimension
+                                   for c in competencies[order + 1:]))
+
+        # Hold the final slot for a dimension with nothing planned yet, when one
+        # is still ahead.
+        if (free == 1 and comp.dimension in probed_dimensions
+                and any(c.dimension not in probed_dimensions
+                        for c in competencies[order + 1:])):
             continue
-        if trigger not in _SIGNAL_TRIGGERS and len(competencies) - order > free:
+
+        # A competency with no signal yields its slot rather than crowd out a
+        # later one that has signal — UNLESS it is its dimension's last chance.
+        # Delivery is a single competency sitting first in bank order, so without
+        # that exemption it is dropped on the very first pass whenever its
+        # ratings are unremarkable, and the dimension carrying 60% of the weight
+        # collects no written evidence at all.
+        if (trigger not in _SIGNAL_TRIGGERS and not last_chance
+                and len(competencies) - order > free):
             continue
 
         plan.append({"competency_id": comp.id, "trigger": trigger})
-        behavioural_planned = behavioural_planned or is_behavioural
+        probed_dimensions.add(comp.dimension)
 
     return plan
 

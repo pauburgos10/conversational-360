@@ -35,25 +35,61 @@ The compensation document is the *as-is* process. Reading it carefully changes w
 | **Decisioning** | Scores feed promotion and band position | **Business rule: no automated performance scores.** Software surfaces evidence; humans decide |
 | **Aggregation** | Manual reading of ~7 forms | Roll-up by dimension and cohort, **small-N suppression**, CSV + PDF export |
 | **Governance** | None documented | Audit log of aggregate access, encryption, RBAC, 12-month raw retention |
-| **Behavioral competencies** | The 40% "Soft Skills & Values" bucket is under-specified | Capstone names 4 explicit ones (below) |
+| **Behavioral competencies** | ~~The 40% "Soft Skills & Values" bucket is under-specified~~ | **Withdrawn — the premise was wrong. See §1.1** |
 | **Language** | Docs exist in ES and EN | Multilingual is a stretch goal, but ES/EN is effectively the real requirement |
 
-### Reconciling the two competency lists
+### 1.1 Revision — the dimensions were mapped wrongly, and B1–B4 withdrawn
 
-The capstone's **6 core competencies map 1:1 onto the compensation doc's 6.** The capstone then adds **4 collaboration/behavioral competencies** that give structure to the previously vague 40% bucket. That is the single most useful thing this project contributes back to the client.
+Two errors, found on 2026-09-27 by re-reading the compensation document's own
+evaluation template ("Plantilla de Evaluación 360") rather than its narrative.
+
+**The template groups the competencies by section, and we had it wrong:**
+
+| Section | Competencies | Weight |
+|---|---|---|
+| Sección I: Expertise Técnico | `I. Capacidad de Delivery` only | 60% |
+| Sección II A: Competencias Blandas & Valores Pluralit | `II A.1` Autonomía · `II A.2` Decisiones · `II A.3` Innovación · `II A.4` Impacto Sistémico · `II A.5` Cliente | 40% |
+| Sección II B: Evaluación Cualitativa | the four open questions | — |
+
+All six were marked `core`, so C2–C6 sat in the 60% dimension when the client
+puts them in the 40% one. Corrected: `delivery` holds C1; `soft_skills` holds
+C2–C6. Each competency now carries its `section` from the template.
+
+**The 40% bucket was never under-specified**, so the four behavioural
+competencies this plan invented (B1–B4) were filling a gap that did not exist,
+and diluted the client's five. They are removed. Sección II B — the qualitative
+half of that dimension — is what the instrument actually pairs with the ratings,
+and it was already implemented as `qualitative_fixed`.
+
+**The 60/40 weights were never applied.** `weight` appeared once in the codebase,
+as a label on a report table; the overall figure pooled every item equally, which
+gave the 60% dimension about 12% of the say once Delivery was correctly reduced
+to three items of eighteen. `rollup` now computes the overall as the weighted
+combination of the two dimensions, renormalised over the dimensions that have
+answers. Note the tension with §2: this is a composite figure, so it is reported
+alongside its dimensions and bands, never as a verdict.
+
+**The document contradicts itself** on C5's second item — the narrative says
+*Entusiasmo y clima laboral*, the template says *Orientación a resultados*. We
+follow the template, being the instrument evaluators fill in. Worth confirming
+with HR, since the narrative version is the only item covering team climate.
+
+`tests/test_instrument_alignment.py` pins all of the above.
+
+### Reconciling the two competency lists (superseded by §1.1)
 
 | # | Competency | Type | Source | Sub-items |
 |---|---|---|---|---|
-| C1 | Delivery | Core | Both | 3 (Commitment, Quality, Obstacle Mgmt) |
-| C2 | Level of Autonomy | Core | Both | 3 (End-to-end, Proactivity, Ownership) |
-| C3 | Maturity in Decision-Making | Core | Both | 3 (Quality, Independence, Impact analysis) |
-| C4 | Ability to Innovate and Improve the System | Core | Both | 3 (Simplification, Status quo, Knowledge transfer) |
-| C5 | Systemic Impact on the Business | Core | Both | 3 (Strategic vision, Climate, Influence) |
-| C6 | Customer Orientation | Core | Both | 3 (Needs ID, Value added, Collective success) |
-| B1 | Ability to Work with Others | Behavioral | Capstone | 2 — **to draft** |
-| B2 | Ability to Develop Others | Behavioral | Capstone | 2 — **to draft** |
-| B3 | Willingness to Help Others | Behavioral | Capstone | 2 — **to draft** |
-| B4 | Constructive Problem Solving | Behavioral | Capstone | 2 — **to draft** |
+| C1 | Delivery | Sección I (60%) | Client | 3 (Commitment, Quality, Obstacle Mgmt) |
+| C2 | Level of Autonomy | Sección II A (40%) | Client | 3 (End-to-end, Proactivity, Ownership) |
+| C3 | Maturity in Decision-Making | Sección II A (40%) | Client | 3 (Quality, Independence, Impact analysis) |
+| C4 | Ability to Innovate and Improve the System | Sección II A (40%) | Client | 3 (Simplification, Status quo, Knowledge transfer) |
+| C5 | Systemic Impact on the Business | Sección II A (40%) | Client | 3 (Strategic vision, **Results orientation**, Influence) |
+| C6 | Customer Orientation | Sección II A (40%) | Client | 3 (Needs ID, Value added, Collective success) |
+| ~~B1~~ | ~~Ability to Work with Others~~ | Invented | Capstone | **removed — §1.1** |
+| ~~B2~~ | ~~Ability to Develop Others~~ | Invented | Capstone | **removed — §1.1** |
+| ~~B3~~ | ~~Willingness to Help Others~~ | Invented | Capstone | **removed — §1.1** |
+| ~~B4~~ | ~~Constructive Problem Solving~~ | Invented | Capstone | **removed — §1.1** |
 
 **Threshold conflict to resolve:** the capstone specifies `<2 needs guidance · 2–2.5 meets · >2.5 possible promotion/bonus`; the client doc uses `>2.6` on Autonomy + Innovation. Resolution: thresholds live in `reporting-rules.yaml`, default to the capstone's 2.5, and the report renders them as **bands with labels, never as a verdict**.
 
@@ -153,7 +189,7 @@ State machine, one graph, `SqliteSaver` checkpointed on `thread_id = ballot_id` 
 welcome → consent ─(decline)→ exit_gracefully
    │(accept)
    ▼
-likert_block(C1..C6, B1..B4)      ← selectable response, deterministic, no LLM
+likert_block(C1..C6)              ← selectable response, deterministic, no LLM
    │
    ▼
 open_probe(per competency)        ← LLM generates the probe from the question bank
@@ -179,7 +215,7 @@ Design rules:
 
 ### Aggregation and redaction
 
-- Roll up: item → competency → dimension (Core / Behavioral) → cohort.
+- Roll up: item → competency → dimension (Delivery 60% / Soft Skills & Values 40%) → cohort. The overall is the weighted combination of the two, not a pool of items — see §1.1.
 - **Small-N suppression:** default `k = 4` ballots per cell (`reporting-rules.yaml`). Below `k`, the cell renders `—` with a suppression reason code. Also suppress on **dominance** (one ballot >50% of a cell's weight) and apply **complementary suppression** so a suppressed cell can't be recovered by subtracting from the total. That last one is where most implementations get it wrong and is worth a test.
 - Qualitative: cluster open answers into themes via structured-output LLM, require `min_ballots_per_theme = 3`, and emit **paraphrased** themes. Verbatim quotes are re-identifying — no raw quotes leave the system in round 1.
 - Exports: **CSV** for structured aggregates, **PDF** for the two narrative reports.
@@ -245,7 +281,7 @@ MVP cut line is marked. Everything below it ships only if the line above is gree
 ### Week 1 — 2026-08-19 → 08-25 · Foundations and the instrument
 - [ ] Scaffold repo, FastAPI app, SQLAlchemy models, two-database split, Alembic-less simple `create_all` seeding.
 - [ ] Author **`competencies.json`** — port all 6 core competencies with their 3 sub-items and both anchor-text variants verbatim from the client doc.
-- [ ] Draft **B1–B4** behavioral competencies with 2 items each, in the client's voice. This is net-new authoring; budget real time for it.
+- [x] ~~Draft **B1–B4** behavioral competencies~~ — withdrawn, see §1.1: the bucket they were meant to fill is fully specified as Sección II A.
 - [ ] **`questions.json`** — Likert items + open-probe templates + `allow_followup` flags. The brief's starter `taxonomy.csv` is absorbed here rather than kept as a separate file: its `dimension_tag` column is the competency list and its `example_prompt_theme` column becomes `open_probes`, which carries several framings per competency instead of one. Keeping both would mean two places to edit a competency name with nothing detecting the drift.
 - [ ] **`consent.md`** (EN, with ES stub), **`reporting-rules.yaml`** (k=4, thresholds, dimensions), **`raters-synthetic.csv`** (~40 raters × 6 subjects × 2 cohorts — enough rows that small-N suppression actually triggers in some cells and not others).
 - [ ] Token issuance + redemption + ballot minting, with `test_identity_separation.py` asserting no query path can join a ballot back to a rater.
@@ -334,7 +370,7 @@ MVP cut line is marked. Everything below it ships only if the line above is gree
 
 1. Round 1 is fully anonymous with no role breakdown. Round 2 presumably wants self-vs-manager gap analysis — should the schema leave a *forward-compatible* seam for that, or stay hard-split?
 2. Threshold: 2.5 (capstone) or 2.6 on Autonomy + Innovation (client doc)? Config default is 2.5.
-3. Wording for B1–B4 needs **HR and Legal sign-off** before any real round, per the non-functional requirements. Prototype wording is a draft.
+3. **Answered by §1.1** — B1–B4 were withdrawn, so there is no drafted wording left needing sign-off. Every item is now the client's own. One item does need HR's ruling: C5.2, where the document contradicts itself (*Entusiasmo y clima laboral* in the narrative, *Orientación a resultados* in the template). We follow the template.
 4. Real EAP / well-being contact link for `consent.md`.
 5. Is the round scoped to the leadership cohort only, or the full cross-functional list (Talent Partner, Sourcer, Legal & Immigration, Business Process, Comms, Admin & Finance)? Cohort sizing drives whether `k = 4` is even reachable.
 
