@@ -1648,3 +1648,14 @@ def test_a_malformed_roster_email_is_refused(client):
     r = client.post("/admin/subjects", data={"display_name": "Nora Field", "email": "nope"})
     assert "does not look like an email" in r.text
     assert all(s.display_name != "Nora Field" for s in roster.load_subjects())
+
+
+def test_the_person_page_shows_the_self_assessment_status(client):
+    """It read "not started" for finished forms: the template variable was named
+    `self`, which Jinja reserves, so every status on it came back empty."""
+    store.save_self_assessment("S1", rounds.DEFAULT_ROUND,
+                               {i.id: 2 for i in banks.load_bank().all_items})
+    rounds.mint_self_link("S1")
+    as_hr(client)
+    section = client.get("/admin/person/S1").text.split('id="self"')[1]
+    assert "complete" in section and "not started" not in section

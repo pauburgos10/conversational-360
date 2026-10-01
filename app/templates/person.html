@@ -138,8 +138,8 @@
     <div class="linkcell">
       <a class="mono" href="/self/{{ self_token }}">/self/{{ self_token }}</a>
       <button type="button" class="copy" onclick="copyLink(this, '{{ url }}')">Copy link</button>
-      {% if self.complete %}<span class="pill ok">complete</span>
-      {% elif self.started %}<span class="pill">in progress · {{ self.progress }}</span>
+      {% if self_state.complete %}<span class="pill ok">complete</span>
+      {% elif self_state.started %}<span class="pill">in progress · {{ self_state.progress }}</span>
       {% else %}<span class="pill">not started</span>{% endif %}
     </div>
     <p class="muted" style="font-size:.85em; margin-bottom:0">

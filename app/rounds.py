@@ -757,5 +757,8 @@ def person_view(subject_id: str, round_id: str = DEFAULT_ROUND) -> dict | None:
         "suggestions": suggestions,
         "links": links,
         "self_token": self_links(round_id).get(subject_id),
-        "self": self_status(subject_id, round_id),
+        # Not "self": Jinja reserves that name for the template itself, so a
+        # context variable called `self` is silently shadowed and every status
+        # on the page reads as empty — "not started" for a finished form.
+        "self_state": self_status(subject_id, round_id),
     }
