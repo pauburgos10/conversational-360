@@ -156,17 +156,20 @@
           {{ turn.summary.followups }} follow-ups asked
         </p>
         {% if turn.summary.redactions %}
-          <p class="muted">Redacted before storage:
-            {% for code, n in turn.summary.redactions.items() %}
-              <span class="pill">{{ code }} × {{ n }}</span>
-            {% endfor %}
+          {# Plain words, not rule codes: "NAME × 1" meant nothing to a reviewer.
+             And "removed from the copy they receive", not "before storage" —
+             answers are kept as written for HR and masked only when the
+             subject's copy is produced, so the old wording was untrue. #}
+          <p class="muted">
+            Some details you wrote, such as names or contact details, will be
+            removed from the copy the person you reviewed receives.
           </p>
         {% endif %}
       {% else %}
         <strong>Saved, not submitted.</strong>
         <p class="muted">Reopen this same link to finish.</p>
       {% endif %}
-      <a class="btn" href="/">Back to the round</a>
+      <a class="btn" href="/">Back to home</a>
     </div>
 
   {% elif pending.kind == 'consent' %}

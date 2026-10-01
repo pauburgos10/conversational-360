@@ -1659,3 +1659,17 @@ def test_the_person_page_shows_the_self_assessment_status(client):
     as_hr(client)
     section = client.get("/admin/person/S1").text.split('id="self"')[1]
     assert "complete" in section and "not started" not in section
+
+
+def test_the_thank_you_screen_says_what_will_be_hidden_in_plain_words(client):
+    """It used to show rule codes ("EMAIL × 1") under "Redacted before storage",
+    which was untrue once answers were kept as written for HR."""
+    ballot_id = start(client)
+    r = run_to_end(client, ballot_id,
+                   answer="They rewrote the onboarding checklist last quarter; ask "
+                          "me at rater.one@example.com for the details of how it went.")
+    page = " ".join(r.text.split())
+    assert "Submitted. Thank you." in page
+    assert "will be removed from the copy the person you reviewed receives" in page
+    assert "Redacted before storage" not in page and "EMAIL ×" not in page
+    assert "Back to home" in page and "Back to the round" not in page
