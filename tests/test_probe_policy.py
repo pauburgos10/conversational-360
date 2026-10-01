@@ -14,21 +14,18 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
-from app import deps
 from app.main import app
 from poc import banks, llm, policy
 from poc.graph import nodes
+from tests.conftest import sign_in_as_hr
 
 GOOD = {"max_probed_competencies": 4, "max_followups_per_probe": 2,
         "max_followups_per_session": 8, "min_words": 8}
 
 
 @pytest.fixture
-def hr(monkeypatch, tmp_path):
-    monkeypatch.setattr(deps, "SETTINGS_PATH", tmp_path / "web-settings.json")
-    c = TestClient(app)
-    c.cookies.set(deps.ROLE_COOKIE, deps.ROLE_HR)
-    return c
+def hr():
+    return sign_in_as_hr(TestClient(app))
 
 
 # --------------------------------------------------------------- the settings

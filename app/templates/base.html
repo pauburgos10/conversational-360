@@ -66,8 +66,13 @@
   .muted { color: var(--muted); }
   code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .88em; }
   form.inline { display: inline; }
-  a.pill-link { text-decoration: none; }
-  a.pill-link:hover { border-color: var(--accent); color: var(--accent); }
+  header.topbar .who { font-size: .9rem; color: var(--muted); }
+  header.topbar .who a { text-decoration: none; }
+  button.linklike {
+    background: none; border: 0; padding: 0; color: var(--accent);
+    font-size: inherit; text-decoration: underline;
+  }
+  .modelbar { margin: 0 0 1rem; }
   .demobar {
     margin: 0 0 1rem; padding: .6rem .85rem; border-radius: 8px;
     border: 1px solid var(--warn-line); background: var(--warn-bg);
@@ -79,42 +84,31 @@
 <body>
 <header class="topbar">
   <span class="brand"><a href="/">Conversational 360°</a></span>
-  {# Same vocabulary as the control on /admin. A header that says "stub" while
-     the toggle says "Offline" reads as two different settings.
-
-     For HR this badge links to the control that changes it. It is a status
-     indicator, but it does not look like one — it reads as something you can
-     click, and with no route to /admin from here that misreading costs a
-     confused minute. Raters get plain text, since /admin would 403 them. #}
-  {% if llm %}
-    {% set llm_label %}
-      {%- if llm.effective == 'openai' %}Live · {{ llm.model }}
-      {%- elif llm.degraded %}Offline (no key)
-      {%- else %}Offline{% endif -%}
-    {% endset %}
-    {% set llm_title %}
-      {%- if llm.degraded %}Live was requested but no API key is set
-      {%- elif llm.effective == 'openai' %}Live API calls, billed per turn
-      {%- else %}Deterministic, offline, free{% endif -%}
-    {% endset %}
-    {% if role == 'hr_admin' %}
-      <a class="pill {% if llm.effective == 'openai' %}live{% endif %} pill-link"
-         href="/admin#llm" title="{{ llm_title|trim }} — click to change">{{ llm_label|trim }}</a>
-    {% else %}
-      <span class="pill {% if llm.effective == 'openai' %}live{% endif %}"
-            title="{{ llm_title|trim }}">{{ llm_label|trim }}</span>
-    {% endif %}
+  {% if role %}
+    <span class="who">
+      {% if role == 'hr_admin' %}<a href="/admin">Dashboard</a> ·
+        <a href="/admin/invites">Ballot links</a> ·{% endif %}
+      Signed in as <strong>{{ roles[role] }}</strong>
+      <form class="inline" method="post" action="/logout">
+        <button type="submit" class="linklike">Sign out</button>
+      </form>
+    </span>
   {% endif %}
-  <form class="inline" method="post" action="/role">
-    <input type="hidden" name="next" value="{{ request.url.path }}">
-    <select name="role" onchange="this.form.submit()" aria-label="Acting as">
-      {% for value, label in roles.items() %}
-        <option value="{{ value }}" {% if value == role %}selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
-  </form>
 </header>
 <main>
+{% if role and not llm.live %}
+  {# The demo's value is the conversation the model conducts, so there is no
+     "offline mode" to choose: without the model the page says so, to everyone,
+     and points them at whoever can fix it. #}
+  <div class="notice modelbar">
+    {% if llm.reason == 'no_key' %}
+      <strong>The AI model is not available — its key is missing.</strong>
+    {% else %}
+      <strong>The AI model is switched off for this deployment.</strong>
+    {% endif %}
+    Some features may not work as expected. Please contact your administrator.
+  </div>
+{% endif %}
 {% if is_demo %}
   {# Every person in this round is invented. The names are plausible on purpose —
      the redaction rules have to be exercised against realistic input — which is

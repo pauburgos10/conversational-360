@@ -32,19 +32,25 @@ start command typed here would override its `CMD`.
 
 ### Environment variables
 
-Eight, entered by hand. Add the three secrets as **secret** values so they are not
+Ten, entered by hand. Add the secrets as **secret** values so they are not
 readable from the service page afterwards.
 
 | Variable | Value | Why |
 |---|---|---|
-| `C360_LLM_MODE` | `stub` | Boot offline. HR opts into live calls from `/admin`; a restart returns here, so an idle demo never spends money |
 | `C360_SEED_ON_BOOT` | `1` | Seeds the synthetic round when the store is empty. Free tiers have ephemeral disks, so without this a cold start shows "not enough responses" everywhere |
 | `C360_DEMO_BANNER` | `1` | Puts "every person here is synthetic" on every page. The seeded subjects have plausible human names, deliberately |
 | `C360_ROSTER_IN_DATA` | `1` | **Required with the disk.** Keeps the subject list on the disk beside the database — see §1a |
 | `OPENAI_MODEL` | `gpt-4o-mini` | ~28 calls per completed interview; a fraction of a cent at this model |
 | `OPENAI_API_KEY` | **secret** | From a **dedicated** OpenAI project with a monthly budget cap — never your personal key. See README, "Letting HR test against a real model" |
-| `C360_DEMO_USER` | **secret** | HTTP Basic username you will give HR |
-| `C360_DEMO_PASSWORD` | **secret** | HTTP Basic password. Both this and the user must be set, or the gate stays open |
+| `C360_RATER_USER` | **secret** | Username of the rater account — the one reviewers sign in with |
+| `C360_RATER_PASSWORD` | **secret** | Its password |
+| `C360_HR_USER` | **secret** | Username of the HR admin account |
+| `C360_HR_PASSWORD` | **secret** | Its password. Each account needs both halves; with no account set, nobody can sign in |
+
+**Do not set `C360_LLM_MODE`.** The app runs live whenever `OPENAI_API_KEY` is set
+and shows a "model not available" banner when it is not. There is no switch in
+the app any more, so `C360_LLM_MODE=stub` here would keep the model off for every
+visitor. If an older setup has it, delete it.
 
 Create the service, and Render builds from the `Dockerfile`.
 
@@ -107,21 +113,22 @@ step — if you change a variable in the dashboard, change it in the file too.
 
 ## 2. Check it came up
 
-1. `https://<service>.onrender.com/healthz` → `{"ok": true}`, no password prompt.
-   It sits outside the gate because a probe that gets a 401 reads as a failed deploy.
-2. `https://<service>.onrender.com/` → the browser asks for the password.
-3. After signing in: the synthetic round lists ten subjects, and the yellow
-   demonstration banner is on the page.
-4. Switch the header role to **HR / Admin** → `/admin` → reports render.
-5. Under Round controls, click **Live** and start an interview. The header should
-   show the model name; if it says *degraded*, the API key is missing or rejected.
+1. `https://<service>.onrender.com/healthz` → `{"ok": true}`, no sign-in needed.
+   It sits outside sign-in because a probe that gets redirected reads as a failed deploy.
+2. `https://<service>.onrender.com/` → the sign-in page, with the yellow
+   demonstration banner.
+3. Sign in as HR → the round dashboard lists the subjects and reports render.
+4. On **Ballot links**, mint a link, sign out, sign in as the rater and open it.
+   There should be **no** "AI model is not available" banner; if there is, the
+   API key is missing (or `C360_LLM_MODE` is still set).
 
-If the round is empty, `C360_SEED_ON_BOOT` did not take. If there is no password
-prompt, one half of the credential pair is missing.
+If the round is empty, `C360_SEED_ON_BOOT` did not take. If the sign-in page says
+no accounts are configured, one half of each credential pair is missing.
 
 ## 3. Send it to HR
 
-The URL and the password — nothing else. No install, and it works on a phone.
+The URL and the HR admin login — nothing else. No install, and it works on a phone.
+HR hands the rater login to reviewers along with each ballot link they send.
 
 Tell them two things:
 
@@ -177,11 +184,11 @@ Four things to settle in the client repo when you do this:
 
 ## What this deployment is not
 
-The password is one shared secret in front of a demo. It is **not**
-authentication: the role in the header is still a cookie the visitor sets, so
-anyone past the password can switch to HR / Admin and read every report —
-including verbatim feedback attributed by name. That is fine for a synthetic round
-and disqualifying for a real one.
+Sign-in is two shared accounts in front of a demo, not real authentication: every
+HR admin shares one login, and so does every reviewer, so the app cannot tell
+people apart or audit who did what. The HR account reads every report, including
+verbatim feedback attributed by name. That is fine for a synthetic round and
+disqualifying for a real one.
 
 Running a real pilot needs proper authentication, a hosting arrangement the client
 accepts under GDPR, and the two open decisions in PLAN.md §9.6. None of those is a

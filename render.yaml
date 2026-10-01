@@ -30,12 +30,10 @@ services:
       mountPath: /app/data
       sizeGB: 1
     envVars:
-      # Boot default. HR opts into live calls from the admin console when they
-      # want to see real model output; a container restart drops back to stub,
-      # because the toggle persists to `data/` and that disk is ephemeral. That
-      # failsafe is deliberate — an unattended demo should not be spending money.
-      - key: C360_LLM_MODE
-        value: stub
+      # No C360_LLM_MODE: the app runs live whenever OPENAI_API_KEY is set, and
+      # says so in a banner when it is not. Setting C360_LLM_MODE=stub here would
+      # switch the model off for every visitor — there is no longer a control in
+      # the app to switch it back on.
 
       # The demo's own key, entered in the Render dashboard at deploy time.
       # `sync: false` keeps it out of the repo, and it never reaches the browser:
@@ -59,7 +57,14 @@ services:
       # on the disk — so their name appears unmasked in the subject's report.
       - key: C360_ROSTER_IN_DATA
         value: "1"
-      - key: C360_DEMO_USER
+
+      # The two app accounts. Each needs both halves; an account with either
+      # missing does not exist, and with neither configured nobody can sign in.
+      - key: C360_RATER_USER
         sync: false
-      - key: C360_DEMO_PASSWORD
+      - key: C360_RATER_PASSWORD
+        sync: false
+      - key: C360_HR_USER
+        sync: false
+      - key: C360_HR_PASSWORD
         sync: false

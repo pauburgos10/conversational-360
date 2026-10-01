@@ -38,6 +38,41 @@ def force_stub_mode(monkeypatch):
     monkeypatch.setenv("C360_LLM_MODE", "stub")
 
 
+RATER_LOGIN = ("rater.test", "rater-pass")
+HR_LOGIN = ("hr.test", "hr-pass")
+
+
+@pytest.fixture(autouse=True)
+def test_accounts(monkeypatch):
+    """Two known accounts for every test, whatever the developer's `.env` holds.
+
+    The app fails closed with no account configured, so without this every page
+    test would be testing the sign-in screen. Fixed values, set per test, so a
+    real password in someone's shell never reaches an assertion or a log.
+    """
+    monkeypatch.setenv("C360_RATER_USER", RATER_LOGIN[0])
+    monkeypatch.setenv("C360_RATER_PASSWORD", RATER_LOGIN[1])
+    monkeypatch.setenv("C360_HR_USER", HR_LOGIN[0])
+    monkeypatch.setenv("C360_HR_PASSWORD", HR_LOGIN[1])
+    monkeypatch.delenv("C360_SESSION_SECRET", raising=False)
+
+
+def sign_in(client, login):
+    """Sign a TestClient in; the session cookie stays on the client."""
+    r = client.post("/login", data={"username": login[0], "password": login[1]},
+                    follow_redirects=False)
+    assert r.status_code == 303 and "error" not in r.headers["location"], "sign-in failed"
+    return client
+
+
+def sign_in_as_rater(client):
+    return sign_in(client, RATER_LOGIN)
+
+
+def sign_in_as_hr(client):
+    return sign_in(client, HR_LOGIN)
+
+
 @pytest.fixture
 def rules():
     return {

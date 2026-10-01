@@ -6,10 +6,12 @@ This is PLAN.md Week 1–2 in its thinnest honest form: the conversation engine 
 the aggregation pipeline, wrapped in HTTP and given a UI, with no new logic of
 its own. Every number on every page comes from `poc/`.
 
-Two things it deliberately does NOT do, both from PLAN.md §3 and both Week 1+
-work: there is no `identity.db` and no magic-link token exchange, and the role in
-the header is a cookie rather than a session. Both are labelled as mocks in the
-UI rather than left to be discovered.
+Everyone signs in to one of two accounts, a rater or an HR admin (`app.auth`).
+A rater reaches a review only through a ballot link HR minted and sent them;
+everything else — subjects, links, reports, settings — is HR's side.
+
+Still not production identity: one shared account per role, no `identity.db`,
+no per-person magic links. PLAN.md §3 describes the real version.
 """
 
 from __future__ import annotations
@@ -17,9 +19,10 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
@@ -27,9 +30,8 @@ from markupsafe import Markup, escape
 from starlette.exceptions import HTTPException
 
 from poc import store, trace
-from poc.session import DEFAULT_ROUND
 
-from . import demo, deps, rounds
+from . import auth, demo, deps, rounds
 from .routers import rater, reports, selfassess, subjects
 
 HERE = Path(__file__).resolve().parent
@@ -93,7 +95,9 @@ async def lifespan(app: FastAPI):
     store.init()
     if os.getenv("C360_SEED_ON_BOOT", "").strip().lower() in {"1", "true", "yes", "on"}:
         _seed_if_empty()
-    deps.apply_llm_mode()
+    # After seeding, so the synthetic round's completed self-assessments have
+    # links HR can open from the first page load.
+    rounds.backfill_self_links()
     # Every model call also goes to the console, so a fallback is visible in the
     # terminal even when nobody is looking at a page.
     trace.configure_logging()
@@ -105,9 +109,6 @@ app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 app.state.templates = templates
 
 
-app.middleware("http")(demo.require_password)
-
-
 @app.get("/healthz")
 def healthz():
     """Liveness probe. Deliberately outside the password gate."""
@@ -115,19 +116,12 @@ def healthz():
 
 
 @app.middleware("http")
-async def apply_stored_settings(request: Request, call_next):
-    """Restore the operator's LLM choice before the handler can call a model.
-
-    Per request, because the worker process is not durable: `--reload` replaces
-    it on every file save, and a mode held in module state would revert to stub
-    without saying so.
-    """
-    deps.apply_llm_mode()
+async def no_store(request: Request, call_next):
     response = await call_next(request)
 
-    # Every page here reflects mutable round state — the active LLM mode, ballot
-    # counts, freeze status. A browser serving one of these from cache after a
-    # redirect shows a stale setting and reads as a control that did nothing.
+    # Every page here reflects mutable round state — ballot counts, link status,
+    # freeze status. A browser serving one of these from cache after a redirect
+    # shows a stale page and reads as a control that did nothing.
     if response.headers.get("content-type", "").startswith("text/html"):
         response.headers["Cache-Control"] = "no-store, must-revalidate"
     return response
@@ -140,26 +134,73 @@ async def http_error(request: Request, exc: HTTPException):
     )
 
 
-@app.get("/", response_class=HTMLResponse)
-def landing(request: Request, round_id: str = DEFAULT_ROUND):
+@app.middleware("http")
+async def require_sign_in(request: Request, call_next):
+    """Every page but the sign-in form needs a session.
+
+    Registered after `no_store`, which makes it the outer middleware: a signed-out
+    request is turned away before any handler — or any model call — runs. The
+    page asked for rides along as `next`, so a rater opening their ballot link
+    signs in and lands on that review rather than on a home page.
+
+    An HTMX request (a chat reply posted after the session lapsed) gets a header
+    telling the browser to navigate, since swapping a sign-in page into the
+    middle of the conversation would read as a broken page.
+    """
+    if auth.is_public(request.url.path) or deps.current_session(request):
+        return await call_next(request)
+
+    target = request.url.path + (f"?{request.url.query}" if request.url.query else "")
+    login = f"/login?next={quote(target)}"
+    if request.headers.get("hx-request"):
+        return Response(status_code=401, headers={"HX-Redirect": login})
+    return RedirectResponse(login, status_code=303)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request, next: str = "/", error: str | None = None):
+    if deps.current_session(request):
+        return RedirectResponse(auth.safe_next(next), status_code=303)
     return templates.TemplateResponse(
-        request,
-        "landing.html",
-        {
-            "round_id": round_id,
-            "subjects": rounds.subject_state(round_id),
-            "freeze": rounds.round_freeze_info(round_id),
-        },
+        request, "login.html",
+        {"next": auth.safe_next(next), "error": error, "configured": bool(auth.accounts())},
     )
 
 
-@app.post("/role")
-def set_role(request: Request, role: str = Form(...), next: str = Form("/")):
-    # Only same-site paths, so a crafted `next` cannot bounce someone off-site.
-    target = next if next.startswith("/") and not next.startswith("//") else "/"
-    response = RedirectResponse(target, status_code=303)
-    response.set_cookie(deps.ROLE_COOKIE, role if role in deps.ROLES else deps.ROLE_RATER)
+@app.post("/login")
+def login(username: str = Form(""), password: str = Form(""), next: str = Form("/")):
+    role = auth.authenticate(username.strip(), password)
+    if role is None:
+        # One message for every failure: naming which half was wrong tells a
+        # guesser that the other half was right.
+        return RedirectResponse(
+            f"/login?next={quote(auth.safe_next(next))}&error=1", status_code=303
+        )
+    response = RedirectResponse(auth.safe_next(next), status_code=303)
+    response.set_cookie(auth.SESSION_COOKIE, auth.encode_session(role, username.strip()),
+                        httponly=True, samesite="lax")
     return response
+
+
+@app.post("/logout")
+def logout():
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(auth.SESSION_COOKIE)
+    return response
+
+
+@app.get("/", response_class=HTMLResponse)
+def home(request: Request):
+    """HR lands on the round dashboard; a rater on how to reach their reviews.
+
+    A rater is deliberately not shown a list of subjects. Who reviews whom is
+    HR's decision, made by minting a link for a particular person and sending it
+    to the reviewer — a list here would let anyone signed in as the rater account
+    start a review of anyone.
+    """
+    if deps.current_role(request) == deps.ROLE_HR:
+        return RedirectResponse("/admin", status_code=303)
+    return templates.TemplateResponse(request, "landing.html", {})
 
 
 app.include_router(rater.router)

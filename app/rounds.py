@@ -17,7 +17,7 @@ import re
 import secrets
 from dataclasses import dataclass
 
-from poc import banks, config, store
+from poc import banks, config, roster, store
 from poc.aggregation import rollup, suppression
 from poc.graph.build import build_app
 
@@ -100,9 +100,19 @@ def subject_state(round_id: str = DEFAULT_ROUND) -> list[dict]:
         if state.status == BALLOT_IN_PROGRESS and state.subject_id:
             live[state.subject_id] = live.get(state.subject_id, 0) + 1
 
+    # Reporting lines live in the roster, not the store: the store's `subject`
+    # table predates them and is shared with the anonymous side, which has no use
+    # for an org chart. A roster that fails to load just shows no lines.
+    try:
+        listed = {r.subject_id: r for r in roster.load_subjects()}
+    except (FileNotFoundError, ValueError):
+        listed = {}
+
     rows = []
     for s in subjects:
         n = counts.get(s["subject_id"], 0)
+        entry = listed.get(s["subject_id"])
+        manager = listed.get(entry.manager_id) if entry and entry.manager_id else None
         self_state = self_status(s["subject_id"], round_id,
                                  answered=self_counts.get(s["subject_id"], {}))
         rows.append({
@@ -110,6 +120,8 @@ def subject_state(round_id: str = DEFAULT_ROUND) -> list[dict]:
             "display_name": s["display_name"],
             "role": s["role"],
             "cohort": s["cohort"],
+            "manager_id": manager.subject_id if manager else "",
+            "manager_name": manager.display_name if manager else "",
             "n_ballots": n,
             "n_open": live.get(s["subject_id"], 0),
             "min_n": min_n,
@@ -558,3 +570,79 @@ def self_answers(subject_id: str, round_id: str = DEFAULT_ROUND) -> dict[str, in
             (subject_id, round_id),
         ).fetchall()
     return {r["item_id"]: r["value"] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# self-assessment links
+# ---------------------------------------------------------------------------
+#
+# The form used to live at `/self/<subject_id>`. With one shared rater account,
+# anyone signed in could type `/self/S3` and fill in someone else's
+# self-assessment. Now HR mints one unguessable link per subject per round and
+# sends it to that person, the same way ballot links work.
+#
+# Kept apart from `invites.json` because it is not the identity side: a
+# self-assessment is attributed to its subject by design, and nothing here says
+# who rated whom.
+
+SELF_LINKS_PATH = config.DATA / "self_links.json"
+
+
+def _load_self_links() -> dict:
+    if not SELF_LINKS_PATH.exists():
+        return {}
+    try:
+        return json.loads(SELF_LINKS_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def self_links(round_id: str = DEFAULT_ROUND) -> dict[str, str]:
+    """`subject_id -> token` for every self-assessment link minted this round."""
+    return dict(_load_self_links().get(round_id, {}))
+
+
+def mint_self_link(subject_id: str, round_id: str = DEFAULT_ROUND) -> str:
+    """The subject's self-assessment link, minting it the first time.
+
+    One per subject per round, and minting again returns the same one: the form
+    resumes from what was saved, so a second link would only be a second way into
+    the same answers — and a link already sent must keep working.
+    """
+    data = _load_self_links()
+    bucket = data.setdefault(round_id, {})
+    if subject_id not in bucket:
+        bucket[subject_id] = f"s-{secrets.token_urlsafe(8)}"
+        SELF_LINKS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return bucket[subject_id]
+
+
+def subject_for_self_token(token: str, round_id: str = DEFAULT_ROUND) -> str | None:
+    for subject_id, minted in self_links(round_id).items():
+        if secrets.compare_digest(minted, token):
+            return subject_id
+    return None
+
+
+def backfill_self_links(round_id: str = DEFAULT_ROUND) -> list[str]:
+    """Mint a link for every subject who already has self-assessment answers.
+
+    Self-assessments written before links existed — the seeded synthetic round,
+    and anything filled in through the old `/self/<subject_id>` address — have
+    answers but no way back in. Without a link HR cannot open them to see what
+    was said. Subjects who have not started are left alone: their link is minted
+    when HR decides to send it. Returns the subjects that got a new link.
+    """
+    store.init()
+    with store.connect() as conn:
+        started = {
+            r["subject_id"]
+            for r in conn.execute(
+                "SELECT DISTINCT subject_id FROM self_assessment WHERE round_id=?",
+                (round_id,),
+            )
+        }
+    missing = sorted(started - set(self_links(round_id)))
+    for subject_id in missing:
+        mint_self_link(subject_id, round_id)
+    return missing

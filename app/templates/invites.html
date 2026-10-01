@@ -19,19 +19,40 @@
   }
   .assign button { font-size: .8rem; padding: .3rem .55rem; }
   td.owner { min-width: 13rem; }
+  .linkcell { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
+  .linkcell a { word-break: break-all; }
+  .copy { font-size: .78rem; padding: .2rem .5rem; }
+  tr.fresh td { background: var(--warn-bg); }
 </style>
+<script>
+  // Copies the full address, not the path shown: a link pasted into an email
+  // has to work for someone who has never seen this site.
+  function copyLink(button, url) {
+    navigator.clipboard.writeText(url).then(function () {
+      const label = button.textContent;
+      button.textContent = "Copied";
+      setTimeout(function () { button.textContent = label; }, 1500);
+    });
+  }
+</script>
 {% endblock %}
 {% block content %}
 <p class="sub"><a href="/admin">← Round {{ round_id }}</a></p>
 <h1>Ballot links</h1>
 <p class="sub">
-  Pre-minted links standing in for invite distribution. This file is also the
-  identity side of the boundary — the address assigned here is what attributes a
-  reviewer's answers on the HR copy of their report.
+  Mint a link for the person to be reviewed, copy it, and send it to the reviewer
+  yourself. Noting the address you sent it to lets you see who still owes a
+  review, and attributes their answers on the HR copy of the report.
 </p>
 
 {% if error %}
   <div class="notice"><strong>Could not do that.</strong> {{ error }}</div>
+{% endif %}
+{% if minted %}
+  <div class="notice" style="border-color: var(--ok); background: var(--card); color: var(--ink)">
+    {{ minted|length }} link{{ '' if minted|length == 1 else 's' }} minted — highlighted
+    below, ready to copy and send.
+  </div>
 {% endif %}
 {% if assigned %}
   <div class="notice" style="border-color: var(--ok); background: var(--card); color: var(--ink)">
@@ -54,7 +75,7 @@
       </select>
     </label>
     <label class="who">
-      <span>Assign to <em style="font-style:normal;opacity:.75">(optional)</em></span>
+      <span>Sending to <em style="font-style:normal;opacity:.75">(optional — any address, inside or outside the company)</em></span>
       <input type="email" name="email" placeholder="rater@example.com"
              autocomplete="off" maxlength="254">
     </label>
@@ -91,7 +112,7 @@
     </thead>
     <tbody>
       {% for r in rows %}
-      <tr>
+      <tr{% if r.ballot_id in minted %} class="fresh"{% endif %}>
         <td>{{ r.display_name }}</td>
         <td class="owner">
           {% if not r.invited %}
@@ -112,7 +133,13 @@
           </form>
           {% endif %}
         </td>
-        <td><a class="mono" href="{{ r.link }}">{{ r.link }}</a></td>
+        <td>
+          {% set url = request.base_url|string ~ r.link[1:] %}
+          <div class="linkcell">
+            <a class="mono" href="{{ r.link }}">{{ r.link }}</a>
+            <button type="button" class="copy" onclick="copyLink(this, '{{ url }}')">Copy link</button>
+          </div>
+        </td>
         <td>
           {% if r.status in ('submitted', 'frozen') %}
             <span class="pill ok">{{ r.status }}</span>
@@ -132,6 +159,47 @@
   <p class="muted">No links minted yet.</p>
 {% endif %}
 
+<div class="card" id="self">
+  <h2 style="margin-top:0">Self-assessment links</h2>
+  <p class="muted" style="font-size:.9em; margin-top:0">
+    Each person rates themselves on their own form, which opens the development
+    conversation and never counts toward the average. Mint their link and send it
+    to them; it stays the same if you mint it again, so a link already sent keeps
+    working.
+  </p>
+  <div class="scroll"><table>
+    <thead><tr><th>Person</th><th>Link</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for s in subjects %}
+      <tr id="self-{{ s.subject_id }}">
+        <td>{{ s.display_name }}</td>
+        <td>
+          {% set token = self_links.get(s.subject_id) %}
+          {% if token %}
+            {% set url = request.base_url|string ~ 'self/' ~ token %}
+            <div class="linkcell">
+              <a class="mono" href="/self/{{ token }}">/self/{{ token }}</a>
+              <button type="button" class="copy" onclick="copyLink(this, '{{ url }}')">Copy link</button>
+            </div>
+          {% else %}
+            <form method="post" action="/admin/self-links" class="inline">
+              <input type="hidden" name="round_id" value="{{ round_id }}">
+              <input type="hidden" name="subject_id" value="{{ s.subject_id }}">
+              <button type="submit">Mint self-assessment for {{ s.display_name }}</button>
+            </form>
+          {% endif %}
+        </td>
+        <td>
+          {% if s.self.complete %}<span class="pill ok">complete</span>
+          {% elif s.self.started %}<span class="pill">in progress · {{ s.self.progress }}</span>
+          {% else %}<span class="pill">not started</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
 <div class="card">
   <h2 style="margin-top:0">What this page can and cannot tell you</h2>
   <p class="muted" style="font-size:.9em">
@@ -142,9 +210,10 @@
     reaches <code>responses.db</code> until submission.
   </p>
   <p class="muted" style="font-size:.9em">
-    <strong>Started without an invite</strong> rows are reviews begun from
-    <em>Start a review</em> rather than from a minted link. They are listed while in
-    progress so a reviewer who lost the tab can be sent their link to carry on.
+    <strong>Started without an invite</strong> rows are reviews begun from the
+    former <em>Start a review</em> button, before every review came from a minted
+    link. They are listed while in progress so a reviewer who lost the tab can be
+    sent their link to carry on.
     One that has not got past the consent screen, or was declined, is not listed,
     for the same reason as above.
   </p>

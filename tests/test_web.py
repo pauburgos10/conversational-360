@@ -30,6 +30,7 @@ from app.main import app
 from poc import banks, config, roster, store
 from poc.session import Interview
 from poc.graph import nodes
+from tests.conftest import sign_in_as_hr, sign_in_as_rater
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -56,11 +57,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "RESPONSES_DB", tmp_path / "responses.db")
     monkeypatch.setattr(config, "CHECKPOINTS_DB", tmp_path / "checkpoints.db")
     monkeypatch.setattr(rounds, "INVITES_PATH", tmp_path / "invites.json")
-    # The LLM mode now persists to a file, and the app applies it per request.
-    # Without this the suite would inherit whatever mode was last chosen in a
-    # browser — the same ambient-configuration failure `force_stub_mode` exists
-    # to prevent, arriving by a different route.
-    monkeypatch.setattr(deps, "SETTINGS_PATH", tmp_path / "web-settings.json")
+    monkeypatch.setattr(rounds, "SELF_LINKS_PATH", tmp_path / "self_links.json")
 
     # The add-subject route appends to the roster CSV. Point it at a copy, or the
     # suite grows `inputs/subjects.csv` by a row every time it runs.
@@ -78,7 +75,10 @@ def client(tmp_path, monkeypatch):
     store.init()
     store.upsert_subject("S1", "Subject One", "talent", "Team Lead")
     store.upsert_subject("S2", "Subject Two", "talent", "Team Lead")
+    # Signed in as the rater by default — the account a reviewer uses. Tests that
+    # need HR switch with `as_hr`.
     with TestClient(app) as c:
+        sign_in_as_rater(c)
         yield c
 
     # Leave the process as we found it: both the roster cache and the redactor
@@ -89,16 +89,30 @@ def client(tmp_path, monkeypatch):
 
 
 def as_hr(client):
-    client.cookies.set(deps.ROLE_COOKIE, deps.ROLE_HR)
-    return client
+    return sign_in_as_hr(client)
 
 
 def start(client, subject_id="S1") -> str:
-    r = client.post("/start", data={"subject_id": subject_id}, follow_redirects=False)
-    assert r.status_code == 303
-    location = r.headers["location"]
-    client.get(location)
-    return location.split("/b/")[1].split("?")[0]
+    """Mint a link for `subject_id` the way HR does, and open it."""
+    [ballot_id] = rounds.mint_invites(subject_id, 1)
+    client.get(f"/b/{ballot_id}")
+    return ballot_id
+
+
+def start_without_invite(subject_id="S1") -> str:
+    """A review begun from the removed "Start a review" button.
+
+    Such ballots still exist on a deployment that predates minted-only links:
+    they have a checkpoint but no invite. Created through the session directly,
+    since no route can start one any more.
+    """
+    ballot_id = rounds.mint_ballot_id()
+    Interview(ballot_id, subject_id).open()
+    return ballot_id
+
+
+def self_url(subject_id="S1") -> str:
+    return f"/self/{rounds.mint_self_link(subject_id)}"
 
 
 def reply(client, ballot_id, text):
@@ -144,14 +158,17 @@ def test_a_whole_interview_completes_over_http(client):
 
 
 def test_the_url_is_the_resume_handle(client):
-    """A fresh client with no cookies continues the same conversation."""
+    """Another browser, signed in afresh, continues the same conversation.
+
+    The session says who is signed in; the link alone says which review.
+    """
     ballot_id = start(client)
     reply(client, ballot_id, "yes")
     first = reply(client, ballot_id, "2")
     progress = re.search(rf">(\d+/{n_items()})<", first.text).group(1)
 
     with TestClient(app) as other:
-        resumed = other.get(f"/b/{ballot_id}")
+        resumed = sign_in_as_rater(other).get(f"/b/{ballot_id}")
     assert resumed.status_code == 200
     assert "Resuming where you left off" in resumed.text
     assert progress in resumed.text
@@ -229,13 +246,13 @@ def test_a_reply_to_an_unknown_ballot_is_refused(client):
 # ---------------------------------------------------------------------------
 
 def test_self_assessment_saves_page_by_page_and_resumes(client):
-    r = client.get("/self/S1")
+    r = client.get(self_url())
     assert r.status_code == 200
     item_ids = re.findall(r'name="item_([^"]+)"', r.text)
     assert item_ids
 
     unique = list(dict.fromkeys(item_ids))
-    client.post("/self/S1", data={"page": 0, "round_id": rounds.DEFAULT_ROUND,
+    client.post(self_url(), data={"page": 0, "round_id": rounds.DEFAULT_ROUND,
                                  **{f"item_{i}": "2" for i in unique}},
                 follow_redirects=False)
 
@@ -243,12 +260,12 @@ def test_self_assessment_saves_page_by_page_and_resumes(client):
     assert set(saved) == set(unique)
 
     # reopening page 0 shows what was already answered
-    again = client.get("/self/S1?page=0")
+    again = client.get(self_url() + "?page=0")
     assert again.text.count("checked") >= len(unique)
 
 
 def test_a_self_assessment_never_becomes_a_ballot(client):
-    client.post("/self/S1", data={"page": 0, "item_C1-1": "3"}, follow_redirects=False)
+    client.post(self_url(), data={"page": 0, "item_C1-1": "3"}, follow_redirects=False)
     with store.connect() as conn:
         ballots = conn.execute("SELECT COUNT(*) c FROM ballot").fetchone()["c"]
         selfs = conn.execute("SELECT COUNT(*) c FROM self_assessment").fetchone()["c"]
@@ -302,96 +319,47 @@ def test_freezing_records_a_digest(client):
     assert len(info["digest"]) == 64
 
 
-def test_the_llm_mode_defaults_to_offline(client):
-    assert deps.stored_llm_mode() == "stub"
-    assert deps.llm_status()["effective"] == "stub"
+# ---------------------------------------------------------------------------
+# the model: live when it can be, said plainly when it cannot
+# ---------------------------------------------------------------------------
+#
+# There used to be an Offline / Live / Auto switch on the dashboard. The demo's
+# value is the conversation the model conducts, so the switch is gone: with a key
+# the app is live, and without one every page says so.
+
+MODEL_BANNER = "The AI model is not available"
 
 
-def test_the_llm_mode_toggle_changes_the_client_and_the_badge(client, monkeypatch):
-    """Toggling must reach `poc.llm`, not just the page.
-
-    Asserting on `get_llm()` rather than on the badge, because a toggle that
-    renders "live" while still handing out a StubLLM is the failure worth
-    catching. The key is faked so this stays offline — nothing is invoked.
-    """
+def test_the_model_runs_live_whenever_a_key_is_set(client, monkeypatch):
+    """Asserted on `get_llm()`, not the page: a live-looking page handing out the
+    stub client is the failure worth catching. The key is fake; nothing is called."""
     from poc import llm
 
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
-    as_hr(client)
-
-    client.post("/admin/llm-mode", data={"mode": "openai"}, follow_redirects=False)
-    deps.apply_llm_mode()
-    assert deps.stored_llm_mode() == "openai"
-    assert type(llm.get_llm()).__name__ == "OpenAILLM"
-    assert "live" in client.get("/admin").text
-
-    client.post("/admin/llm-mode", data={"mode": "stub"}, follow_redirects=False)
-    deps.apply_llm_mode()
-    assert type(llm.get_llm()).__name__ == "StubLLM"
-
-
-def test_exactly_one_mode_is_marked_active(client, monkeypatch):
-    """The reported confusion: two labels, no way to tell which is in force.
-
-    The old control was a <select> plus a separate Apply button, so it could
-    display a mode that had not been applied — indistinguishable from a broken
-    toggle. This pins the replacement: one pressed button, and a status line
-    naming what `poc.llm` will actually hand out.
-    """
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
-    as_hr(client)
-
-    for mode, expected in (("stub", "Offline"), ("openai", "Live"), ("auto", "Auto")):
-        client.post("/admin/llm-mode", data={"mode": mode}, follow_redirects=False)
-        page = client.get("/admin").text
-
-        pressed = re.findall(r'data-mode="(\w+)" aria-pressed="true"', page)
-        assert pressed == [mode], f"{mode}: expected exactly one active button, got {pressed}"
-
-        status = re.search(r"Right now:\s*<strong>([^<]+)</strong>", page)
-        assert status, f"{mode}: no status line"
-        assert expected in status.group(1), f"{mode}: status said {status.group(1)!r}"
-
-    client.post("/admin/llm-mode", data={"mode": "stub"}, follow_redirects=False)
-
-
-def test_a_live_request_without_a_key_says_so_rather_than_pretending(client, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    as_hr(client)
-    client.post("/admin/llm-mode", data={"mode": "openai"}, follow_redirects=False)
-
-    page = client.get("/admin").text
-    assert "Live was requested, but no API key is set" in page
-    assert deps.llm_status()["degraded"] is True
-    client.post("/admin/llm-mode", data={"mode": "stub"}, follow_redirects=False)
-
-
-def test_the_llm_mode_survives_a_process_restart(client, monkeypatch):
-    """The reported bug: the toggle used to live only in process memory.
-
-    A new TestClient over the same settings file stands in for the worker uvicorn
-    replaces on every `--reload`. Clearing the environment variable first proves
-    the mode is restored from the file rather than left over in this process.
-    """
-    as_hr(client)
-    client.post("/admin/llm-mode", data={"mode": "openai"}, follow_redirects=False)
-
     monkeypatch.delenv("C360_LLM_MODE", raising=False)
-
-    with TestClient(app) as restarted:
-        restarted.cookies.set(deps.ROLE_COOKIE, deps.ROLE_HR)
-        page = restarted.get("/admin").text
-    assert deps.stored_llm_mode() == "openai"
-    assert os.environ["C360_LLM_MODE"] == "openai"
-    assert 'data-mode="openai" aria-pressed="true"' in page
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
+    assert deps.llm_status()["live"] is True
+    assert type(llm.get_llm()).__name__ == "OpenAILLM"
+    assert MODEL_BANNER not in client.get("/").text
 
 
-def test_a_stored_openai_mode_cannot_leak_into_another_round(client):
-    """Sanity: the settings file the suite writes is the isolated one."""
-    client.cookies.set(deps.ROLE_COOKIE, deps.ROLE_HR)
-    client.post("/admin/llm-mode", data={"mode": "openai"}, follow_redirects=False)
-    assert deps.SETTINGS_PATH.exists()
-    assert "tmp" in str(deps.SETTINGS_PATH) or "pytest" in str(deps.SETTINGS_PATH)
+def test_without_a_key_every_page_says_so(client, monkeypatch):
+    monkeypatch.delenv("C360_LLM_MODE", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert deps.llm_status()["reason"] == "no_key"
+
+    rater_page = client.get("/").text
+    assert MODEL_BANNER in rater_page and "key is missing" in rater_page
+    assert "contact your administrator" in rater_page
+    as_hr(client)
+    assert MODEL_BANNER in client.get("/admin").text
+
+
+def test_there_is_no_mode_switch_any_more(client):
+    as_hr(client)
+    assert client.post("/admin/llm-mode", data={"mode": "stub"}).status_code in (404, 405)
+    page = client.get("/admin").text
+    assert "LLM mode" not in page
+    assert "Offline" not in page
 
 
 # ---------------------------------------------------------------------------
@@ -465,7 +433,7 @@ def test_hr_can_add_a_subject_and_it_appears_in_the_round(client):
 
     # the roster CSV is the record
     rows = config.SUBJECTS_PATH.read_text(encoding="utf-8").strip().splitlines()
-    assert rows[-1] == f"{subject_id},Sofia Marin,Analyst,operations"
+    assert rows[-1] == f"{subject_id},Sofia Marin,Analyst,operations,"  # no manager
 
     # and the store, or reports would render an empty round
     with store.connect() as conn:
@@ -716,22 +684,22 @@ def test_an_out_of_range_rating_is_refused(client):
 # ---------------------------------------------------------------------------
 
 def test_self_assessment_offers_back_and_a_jump_list(client):
-    r = client.get("/self/S1?page=2")
+    r = client.get(self_url() + "?page=2")
     assert 'name="goto" value="1"' in r.text, "no Back button"
     assert 'name="goto" value="0"' in r.text, "no jump target for page 0"
     assert "← Back" in r.text
 
-    first = client.get("/self/S1?page=0")
+    first = client.get(self_url() + "?page=0")
     assert "← Back" not in first.text, "page 0 must not offer Back"
 
 
 def test_navigating_back_saves_the_current_page_first(client):
     """Moving around must never be the thing that loses an answer."""
-    page1 = client.get("/self/S1?page=1")
+    page1 = client.get(self_url() + "?page=1")
     ids = list(dict.fromkeys(re.findall(r'name="item_(\w[\w.]*)"', page1.text)))
     assert ids
 
-    r = client.post("/self/S1",
+    r = client.post(self_url(),
                     data={"page": 1, "goto": 0, **{f"item_{i}": "3" for i in ids}},
                     follow_redirects=False)
     assert r.headers["location"].endswith("page=0")
@@ -742,11 +710,11 @@ def test_navigating_back_saves_the_current_page_first(client):
 
 def test_a_previously_answered_page_comes_back_prefilled(client):
     ids = list(dict.fromkeys(re.findall(r'name="item_(\w[\w.]*)"',
-                                        client.get("/self/S1?page=0").text)))
-    client.post("/self/S1", data={"page": 0, **{f"item_{i}": "1" for i in ids}},
+                                        client.get(self_url() + "?page=0").text)))
+    client.post(self_url(), data={"page": 0, **{f"item_{i}": "1" for i in ids}},
                 follow_redirects=False)
 
-    again = client.get("/self/S1?page=0").text
+    again = client.get(self_url() + "?page=0").text
     for item_id in ids:
         block = again.split(f'name="item_{item_id}"')
         assert 'value="1"' in block[1][:40] and "checked" in block[1][:60], item_id
@@ -754,11 +722,11 @@ def test_a_previously_answered_page_comes_back_prefilled(client):
 
 def test_the_jump_list_shows_per_page_completion(client):
     ids = list(dict.fromkeys(re.findall(r'name="item_(\w[\w.]*)"',
-                                        client.get("/self/S1?page=0").text)))
-    client.post("/self/S1", data={"page": 0, **{f"item_{i}": "2" for i in ids}},
+                                        client.get(self_url() + "?page=0").text)))
+    client.post(self_url(), data={"page": 0, **{f"item_{i}": "2" for i in ids}},
                 follow_redirects=False)
 
-    r = client.get("/self/S1?page=1")
+    r = client.get(self_url() + "?page=1")
     assert f">{len(ids)}/{len(ids)}<" in r.text, "completed page not marked complete"
     assert ">0/" in r.text, "untouched page should show zero answered"
 
@@ -863,7 +831,8 @@ def test_the_subject_panel_counts_interviews_in_flight(client):
     assert after["n_open"] == 1
     assert after["n_ballots"] == 0, "in flight is not the same as counted toward min_n"
 
-    assert "1 in progress" in client.get("/").text
+    as_hr(client)
+    assert "1 in progress" in client.get("/admin").text
 
 
 def test_the_invite_list_shows_progress(client):
@@ -1000,12 +969,13 @@ def test_the_invite_summary_counts_who_is_still_owed(client):
 # reviews started without an invite can be handed back
 # ---------------------------------------------------------------------------
 #
-# "Start a review" mints a ballot id on the click and keeps it only in the
-# checkpoint. A reviewer who closed the tab mid-interview had no way back, and HR
-# no list to find the link on — the demo lost reviews that way.
+# The former "Start a review" button minted a ballot id on the click and kept it
+# only in the checkpoint. A reviewer who closed the tab mid-interview had no way
+# back, and HR no list to find the link on. The button is gone, but ballots it
+# started still exist on a deployment that predates it, so they stay recoverable.
 
 def test_a_review_started_without_an_invite_is_listed_with_its_link(client):
-    ballot_id = start(client, "S2")
+    ballot_id = start_without_invite("S2")
     reply(client, ballot_id, "yes")
     reply(client, ballot_id, "2")
 
@@ -1018,7 +988,7 @@ def test_a_review_started_without_an_invite_is_listed_with_its_link(client):
 
 def test_the_recovered_link_resumes_the_same_review_about_the_same_person(client):
     """The listed link is the bare id; the subject comes from the checkpoint."""
-    ballot_id = start(client, "S2")
+    ballot_id = start_without_invite("S2")
     reply(client, ballot_id, "yes")
     reply(client, ballot_id, "2")
 
@@ -1031,7 +1001,7 @@ def test_the_recovered_link_resumes_the_same_review_about_the_same_person(client
 def test_a_bare_link_names_the_person_the_review_is_about(client):
     """A review from "Start a review" is not in the invite file. Its bare link
     used to fall back to S1 and head it "Feedback on" the wrong person."""
-    ballot_id = start(client, "S2")
+    ballot_id = start_without_invite("S2")
     reply(client, ballot_id, "yes")
     reply(client, ballot_id, "2")
 
@@ -1042,7 +1012,7 @@ def test_a_bare_link_names_the_person_the_review_is_about(client):
 
 def test_a_subject_in_the_link_cannot_relabel_an_existing_review(client):
     """Once a review exists, its checkpoint decides who it is about, not the URL."""
-    ballot_id = start(client, "S2")
+    ballot_id = start_without_invite("S2")
     reply(client, ballot_id, "yes")
 
     page = client.get(f"/b/{ballot_id}?subject=S1").text
@@ -1051,7 +1021,7 @@ def test_a_subject_in_the_link_cannot_relabel_an_existing_review(client):
 
 def test_the_redirect_after_an_edit_keeps_the_right_person(client):
     """`_after_edit` redirects to the bare `/b/<id>` — the same fallback, unprompted."""
-    ballot_id = start(client, "S2")
+    ballot_id = start_without_invite("S2")
     _to_review(client, ballot_id)
     iv = Interview(ballot_id)
     item = next(iter(iv._app.get_state(iv._cfg).values["likert"]))
@@ -1060,18 +1030,16 @@ def test_the_redirect_after_an_edit_keeps_the_right_person(client):
     assert "Feedback on Subject Two" in r.text
 
 
-def test_a_new_ballot_still_starts_about_the_subject_it_was_given(client):
-    """No checkpoint yet: an invite knows its subject, and "Start a review" says so."""
+def test_a_minted_link_starts_about_the_subject_it_was_minted_for(client):
+    """No checkpoint yet: the invite is what knows the subject."""
     assert "Feedback on Subject Two" in client.get(
         f"/b/{rounds.mint_invites('S2', 1)[0]}").text
-    r = client.post("/start", data={"subject_id": "S2"})
-    assert "Feedback on Subject Two" in r.text
 
 
 def test_a_review_stopped_at_consent_or_declined_is_not_listed(client):
     """The consent promise: declining must read exactly like never opening."""
-    at_consent = start(client)
-    declined = start(client)
+    at_consent = start_without_invite()
+    declined = start_without_invite()
     reply(client, declined, "no")
 
     ids = {r["ballot_id"] for r in rounds.invite_rows()}
@@ -1082,9 +1050,9 @@ def test_a_review_stopped_at_consent_or_declined_is_not_listed(client):
 def test_reviews_without_an_invite_do_not_count_as_minted_links(client):
     """They were never minted or assigned, so they must not inflate those counts."""
     rounds.mint_invites("S1", 1)
-    in_progress = start(client)
+    in_progress = start_without_invite()
     reply(client, in_progress, "yes")
-    finished = start(client)
+    finished = start_without_invite()
     run_to_end(client, finished)
 
     rows = rounds.invite_rows()
@@ -1226,7 +1194,7 @@ def test_an_untouched_self_assessment_reads_as_not_started(client):
 def test_a_partly_filled_self_assessment_reads_as_in_progress(client):
     """The gap this closes: a half-finished form used to look like an empty one."""
     ids = [i.id for i in banks.load_bank().competencies[0].items]
-    client.post("/self/S1", data={"page": 0, **{f"item_{i}": "2" for i in ids}},
+    client.post(self_url(), data={"page": 0, **{f"item_{i}": "2" for i in ids}},
                 follow_redirects=False)
 
     state = rounds.self_status("S1")
@@ -1238,7 +1206,7 @@ def test_a_partly_filled_self_assessment_reads_as_in_progress(client):
 def test_a_fully_answered_self_assessment_reads_as_complete(client):
     bank = banks.load_bank()
     for page, comp in enumerate(bank.competencies):
-        client.post("/self/S1",
+        client.post(self_url(),
                     data={"page": page, **{f"item_{i.id}": "2" for i in comp.items}},
                     follow_redirects=False)
 
@@ -1249,17 +1217,17 @@ def test_a_fully_answered_self_assessment_reads_as_complete(client):
 
 
 def test_the_round_pages_show_the_three_self_states(client):
-    assert "not started" in client.get("/").text
-
     ids = [i.id for i in banks.load_bank().competencies[0].items]
-    client.post("/self/S1", data={"page": 0, **{f"item_{i}": "2" for i in ids}},
-                follow_redirects=False)
-
-    landing = " ".join(client.get("/").text.split())
-    assert f"in progress · {len(ids)}/{n_items()}" in landing
+    url = self_url()
 
     as_hr(client)
-    assert f"in progress · {len(ids)}/{n_items()}" in " ".join(client.get("/admin").text.split())
+    assert "not started" in client.get("/admin").text
+
+    client.post(url, data={"page": 0, **{f"item_{i}": "2" for i in ids}},
+                follow_redirects=False)
+    progress = f"in progress · {len(ids)}/{n_items()}"
+    assert progress in " ".join(client.get("/admin").text.split())
+    assert progress in " ".join(client.get("/admin/invites").text.split())
 
 
 # ---------------------------------------------------------------------------
@@ -1267,14 +1235,14 @@ def test_the_round_pages_show_the_three_self_states(client):
 # ---------------------------------------------------------------------------
 
 def test_the_self_form_asks_in_the_second_person(client):
-    page = client.get("/self/S1").text
+    page = client.get(self_url()).text
     assert "Do you consistently meet agreed deadlines" in page
     assert "Does this person" not in page, "rater wording on the subject's own form"
 
 
 def test_the_self_form_anchors_are_in_the_second_person_too(client):
     """Question and level descriptions sit in one paragraph; both must match."""
-    page = client.get("/self/S1").text
+    page = client.get(self_url()).text
     assert "You consistently meet what you agree to" in page
     assert "Requires frequent reminders" not in page
 
@@ -1392,3 +1360,154 @@ def test_declines_show_as_coverage_on_the_report(client):
         audience=reporting.AUDIENCE_HR)
     # no declines in this round, so the section must not appear at all
     assert "no basis to judge" not in report
+
+
+# ---------------------------------------------------------------------------
+# who can do what: the rater and HR admin accounts
+# ---------------------------------------------------------------------------
+#
+# The demo has two accounts. A rater reaches a review only through a link HR
+# minted for one subject and sent them; everything else is HR's side.
+
+def test_a_rater_cannot_open_any_admin_page(client):
+    for path in ("/admin", "/admin/invites", "/admin/subject/S1", "/admin/aggregates.csv"):
+        assert client.get(path).status_code == 403, path
+
+
+def test_the_start_a_review_route_is_gone(client):
+    """Reviews begin from minted links only; a rater cannot pick whom to review."""
+    assert client.post("/start", data={"subject_id": "S1"}).status_code in (404, 405)
+
+
+def test_a_link_nobody_minted_is_refused_and_starts_nothing(client):
+    """It used to open a review "of" whoever was first on the roster."""
+    r = client.get("/b/w-made-up-link")
+    assert r.status_code == 404
+    assert "link isn&#39;t valid" in r.text
+    assert not Interview("w-made-up-link").exists, "no conversation may be created"
+
+
+def test_hr_opening_a_ballot_is_told_it_counts(client):
+    [ballot_id] = rounds.mint_invites("S1", 1)
+    assert "answering as HR admin" not in client.get(f"/b/{ballot_id}").text
+    as_hr(client)
+    assert "answering as HR admin" in client.get(f"/b/{ballot_id}").text
+
+
+def test_minting_points_hr_at_the_new_link(client):
+    as_hr(client)
+    r = client.post("/admin/invites", data={"subject_id": "S2", "n": 1})
+    [ballot_id] = [i.ballot_id for i in rounds.invites_for()["S2"]]
+    assert "1 link minted" in r.text
+    assert 'class="fresh"' in r.text and f"/b/{ballot_id}" in r.text
+    assert "Copy link" in r.text
+
+
+def test_a_self_assessment_is_reached_only_by_its_minted_link(client):
+    """Addressed by subject id, any signed-in rater could fill in anyone's form."""
+    assert client.get("/self/S1").status_code == 404
+    assert client.post("/self/S1", data={"page": 0, "item_C1.1": "3"}).status_code == 404
+    assert rounds.self_answers("S1") == {}
+
+    token = rounds.mint_self_link("S1")
+    assert "Self-assessment" in client.get(f"/self/{token}").text
+
+
+def test_minting_a_self_link_again_returns_the_one_already_sent(client):
+    as_hr(client)
+    assert "Mint self-assessment for Subject One" in client.get("/admin/invites").text
+    client.post("/admin/self-links", data={"subject_id": "S1"})
+    first = rounds.self_links()["S1"]
+    client.post("/admin/self-links", data={"subject_id": "S1"})
+    assert rounds.self_links()["S1"] == first
+    page = client.get("/admin/invites").text
+    assert f"/self/{first}" in page
+    assert "Mint self-assessment for Subject One" not in page
+
+
+# ---------------------------------------------------------------------------
+# reporting lines
+# ---------------------------------------------------------------------------
+
+def test_a_person_can_be_added_reporting_to_someone_on_the_list(client):
+    as_hr(client)
+    r = client.post("/admin/subjects", data={"display_name": "Nora Field",
+                                             "role": "Senior Developer",
+                                             "cohort": "engineering",
+                                             "manager_id": "S1"})
+    assert "reporting to Subject One" in r.text
+    [nora] = [s for s in roster.load_subjects() if s.display_name == "Nora Field"]
+    assert nora.manager_id == "S1"
+    assert "Reports to Subject One" in client.get("/admin").text
+
+
+def test_the_manager_must_already_be_on_the_list(client):
+    as_hr(client)
+    r = client.post("/admin/subjects", data={"display_name": "Nora Field",
+                                             "manager_id": "S99"})
+    assert "not on the roster" in r.text
+    assert all(s.display_name != "Nora Field" for s in roster.load_subjects())
+
+
+def test_a_roster_from_before_reporting_lines_gains_the_column_intact(client):
+    """The live roster on a deployment's disk has the old four-column header.
+
+    Appending a five-column row to it would leave the new column unnamed; the
+    file is rewritten with the full header and every existing row kept as is.
+    """
+    as_hr(client)
+    client.post("/admin/subjects", data={"display_name": "Nora Field", "manager_id": "S2"})
+    text = config.SUBJECTS_PATH.read_text(encoding="utf-8")
+    assert text.splitlines()[0] == "subject_id,display_name,role,cohort,manager_id"
+    assert "S1,Subject One,Team Lead,talent," in text
+    assert text.rstrip().endswith(",S2")
+
+
+def test_a_bad_manager_in_the_file_is_dropped_not_fatal(tmp_path):
+    """A failed load would empty the redaction list and unmask every name."""
+    path = tmp_path / "subjects.csv"
+    path.write_text("subject_id,display_name,role,cohort,manager_id\n"
+                    "S1,Ana Torres,Lead,talent,S42\n"
+                    "S2,Marcos Vidal,Sourcer,talent,S1\n", encoding="utf-8")
+    roster.load_subjects.cache_clear()
+    try:
+        loaded = {s.subject_id: s for s in roster.load_subjects(path)}
+    finally:
+        roster.load_subjects.cache_clear()
+    assert loaded["S1"].manager_id == ""
+    assert loaded["S2"].manager_id == "S1"
+
+
+def test_a_started_self_assessment_gets_its_link_without_anyone_minting_it(client):
+    """The seeded round's self-assessments predate links; HR must still open them."""
+    store.save_self_assessment("S1", rounds.DEFAULT_ROUND,
+                               {i.id: 3 for i in banks.load_bank().all_items})
+    assert "S1" not in rounds.self_links()
+
+    as_hr(client)
+    page = client.get("/admin/invites").text
+    token = rounds.self_links()["S1"]
+    assert f"/self/{token}" in page
+    assert "Mint self-assessment for Subject One" not in page
+    assert "Mint self-assessment for Subject Two" in page, "not started: HR decides"
+
+
+def test_backfilling_is_idempotent_and_keeps_links_already_sent(client):
+    store.save_self_assessment("S1", rounds.DEFAULT_ROUND, {"C1.1": 2})
+    assert rounds.backfill_self_links() == ["S1"]
+    token = rounds.self_links()["S1"]
+    assert rounds.backfill_self_links() == []
+    assert rounds.self_links()["S1"] == token
+
+
+def test_hr_opening_a_self_assessment_sees_the_answers_and_is_warned(client):
+    first = banks.load_bank().competencies[0].items[0].id
+    store.save_self_assessment("S1", rounds.DEFAULT_ROUND, {first: 3})
+    url = self_url()
+
+    assert "viewing Subject One" not in client.get(url).text
+    as_hr(client)
+    page = client.get(url + "?page=0").text
+    assert "viewing Subject One's self-assessment as HR admin" in page
+    block = page.split(f'name="item_{first}" value="3"')[1][:30]
+    assert "checked" in block, "the saved answer is shown"

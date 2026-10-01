@@ -667,21 +667,21 @@ read it, so keep the two in step by hand.
 
 ```bash
 docker build -t c360-demo .
-docker run -p 8000:8000 -e C360_DEMO_USER=hr -e C360_DEMO_PASSWORD=... c360-demo
+docker run -p 8000:8000 -e C360_HR_USER=hr -e C360_HR_PASSWORD=... \
+  -e C360_RATER_USER=rater -e C360_RATER_PASSWORD=... -e OPENAI_API_KEY=... c360-demo
 ```
 
-Four environment variables, all off by default so local work and the test suite
-are untouched:
+The environment variables that shape a deployment:
 
 | Variable | Effect |
 |---|---|
-| `C360_DEMO_USER` / `C360_DEMO_PASSWORD` | HTTP Basic across the whole site. Both must be set, or the gate stays open — a half-configured gate must not lock the owner out |
+| `C360_RATER_USER` / `C360_RATER_PASSWORD`, `C360_HR_USER` / `C360_HR_PASSWORD` | The two app accounts everyone signs in with. Each needs both halves; with none configured nobody can sign in — the app fails closed rather than falling back to a default password |
+| `OPENAI_API_KEY` | The model. The app runs live whenever it is set and shows a "model not available" banner when it is not |
 | `C360_SEED_ON_BOOT` | Seeds the synthetic round **if the store is empty**. Free tiers have ephemeral disks, so a cold start would otherwise show "not enough responses" everywhere and read as a broken deploy |
 | `C360_DEMO_BANNER` | Puts "every person here is synthetic" on every page |
-| `C360_LLM_MODE=stub` | Pinned in the image. A demo must never depend on an API key, or bill per click |
 | `C360_ROSTER_IN_DATA` | Keeps the subject list in `data/` beside the database. **Required whenever `data/` is on a persistent disk** — see below |
 
-`/healthz` sits outside the gate, because a platform probe that gets a 401 reads
+`/healthz` needs no sign-in, because a platform probe that gets redirected reads
 as a failed deploy.
 
 **Free plan versus a persistent disk.** On Render's free plan the service sleeps
@@ -706,10 +706,12 @@ who do not exist.
 
 #### Letting HR test against a real model
 
-The demo boots in stub mode. To let HR see genuine model output, set
-**`OPENAI_API_KEY`** in the Render dashboard (`render.yaml` marks it
-`sync: false`, so Render prompts for it and it never enters the repo). HR then
-clicks **Live** under Round controls on `/admin`.
+The demo runs live whenever **`OPENAI_API_KEY`** is set in the Render dashboard
+(`render.yaml` marks it `sync: false`, so Render prompts for it and it never
+enters the repo). Without it, every page shows a banner saying the model is not
+available. There used to be an Offline / Live / Auto switch on `/admin`; it was
+removed once the conversation the model conducts became the point of the demo
+rather than an option within it.
 
 **The key never reaches HR.** Calls are made server-side from the container, so
 they exercise the key without ever holding it — nothing is sent to the browser,
@@ -731,29 +733,20 @@ TOTAL      28 calls    (plus one theme-clustering call per report render)
 ```
 
 At `gpt-4o-mini` with prompts this short that is a fraction of a cent, so a $5
-cap is generous. What it protects against is not a demo — it is the password
-being forwarded once too often.
+cap is generous. What it protects against is not a demo — it is a login being
+forwarded once too often.
 
-Three things already limit it:
-
-* **Stub is the boot default**, so the demo idles at zero cost.
-* **The toggle does not survive a restart.** `set_llm_mode` persists to
-  `data/web-settings.json`, which sits on an ephemeral disk, so a sleeping free
-  tier wakes up in stub mode. Nobody can leave live mode switched on by accident.
-* **The header says which mode is actually in force.** `llm_status()` reports
-  `requested` and `effective` separately, so a missing or rejected key shows as
-  degraded rather than looking like the model is being called when it is not.
-
-What is *not* limited: anyone with the demo password can switch to Live and keep
-clicking. The budget cap is what makes that survivable.
+**Calls happen only when someone answers.** An idle demo makes none, so it costs
+nothing between sessions. What is *not* limited: anyone with a login can keep
+clicking through interviews. The budget cap is what makes that survivable.
 
 #### What this deployment is not
 
-The password is one shared secret in front of a demo. **It is not the RBAC in
-PLAN.md §3**: the role in the header is still a cookie the visitor sets
-themselves, so anyone past the password can switch to HR / Admin and read every
-report — including, since the demo-2 change, verbatim feedback attributed by
-name. That is acceptable for a synthetic round and disqualifying for a real one.
+Sign-in is two shared accounts, a rater and an HR admin. **It is not the RBAC in
+PLAN.md §3**: everyone with the HR login reads every report — including, since
+the demo-2 change, verbatim feedback attributed by name — and the app cannot tell
+one reviewer from another. That is acceptable for a synthetic round and
+disqualifying for a real one.
 
 Running an actual pilot needs real authentication, a hosting arrangement the
 client is comfortable with under GDPR, and the two open decisions in PLAN.md
@@ -988,41 +981,23 @@ one response renders *"Not enough responses to report"*, which is correct and
 looks exactly like a bug. Showing `1 / 2` next to it turns an apparent failure
 into a visible rule.
 
-**Offline is the default, and one control says which mode is on.** Clicking
-through the whole Likert battery should not cost anything. The control on `/admin` writes
-the choice to `data/web-settings.json`, and a middleware applies it to
-`C360_LLM_MODE` at the start of every request — `llm.get_llm()` re-reads the
-environment on every call, so there is nothing to invalidate. Asking for `openai`
-with no key says so rather than silently serving stub output.
-
-It is three buttons rather than a dropdown with an Apply step, and that is the
-interaction bug worth naming. A `<select>` plus a separate submit can display a
-mode that has not been applied yet, so the control and the header disagree until
-you press Apply — and a control showing a setting that is not in force is
-indistinguishable from a control that does not work. One button per mode, applied
-on click, removes the pending state entirely. Exactly one is marked ACTIVE, and a
-status line underneath names what `poc.llm` will actually hand out — which is not
-the same as what was chosen for `auto`, or for `openai` with no key.
-
-The file matters too. The first version set the environment variable once at import,
-which meant the toggle reverted to stub on every `--reload` and every restart:
-the setting lived only in the memory of a process uvicorn replaces whenever a
-file is saved, and it reverted *silently*, which is the part that made it look
-like the toggle did nothing. Applying it per request rather than at render time
-is the other half — a route calls the model inside its handler, which runs before
-any template is rendered.
-
-`tests/test_web.py` isolates that file per test. Without it the suite would
-inherit whatever mode was last picked in a browser, which is the same
-ambient-configuration failure `conftest.force_stub_mode` already guards against,
-arriving by a different route.
+**Live whenever a key is set, and said plainly when it is not.** This used to be
+an Offline / Live / Auto switch on `/admin`, defaulting to offline so clicking
+through the battery cost nothing. Once the demo moved from proving the pipeline
+to showing the experience, the switch was the wrong thing to show: the value is
+the conversation the model conducts, and an "offline mode" presented as an option
+undersells that. Now `config.llm_settings()` resolves to the model whenever
+`OPENAI_API_KEY` is set, and without it every page carries a banner saying the
+model is not available and to contact the administrator. `C360_LLM_MODE=stub`
+still forces the deterministic client — the test suite runs on it — but nothing
+in the interface sets it, and the image no longer pins it.
 
 ### What it deliberately is not
 
 | Not built | Why | Where it lands |
 |---|---|---|
 | `identity.db`, magic-link token exchange | `data/invites.json` does the identity side's job in file form: it maps subject → link → assigned reviewer, and is what `rater_labels()` resolves for the HR copy. What is deferred is the token exchange and hashing, not the concept | PLAN.md W1 |
-| Real auth | The role is a cookie, labelled as a mock in the header. `require_hr` is a real seam — no route reads a role itself | PLAN.md W3 |
+| Real auth | Two shared accounts (rater, HR admin) behind a signed session cookie, set from environment variables. `require_hr` is a real seam — no route reads a role itself, so per-person accounts can replace the two without moving route code | PLAN.md W3 |
 | Audit log | Needs a table, and `test_every_table_is_classified` should be the thing that makes adding one deliberate | PLAN.md W3 |
 | Concurrency | Single-process SQLite, unchanged | — |
 
@@ -1034,7 +1009,7 @@ tests/test_web.py   27   full interview over HTTP, resume in a fresh client,
                          echo, declined consent stores nothing, self-assessment
                          paging and resume, self never becomes a ballot,
                          RBAC gate, under-min_n renders its reason, CSV export,
-                         freeze digest, the LLM control reaching `get_llm()`,
+                         freeze digest, live model whenever a key is set,
                          surviving a restart, marking exactly one mode active,
                          and degrading honestly with no key; adding a subject
                          with its redaction rebuild; two structural guards

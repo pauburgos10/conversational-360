@@ -2,34 +2,11 @@
 {% block title %}Round dashboard{% endblock %}
 {% block head %}
 <style>
-  .seg { display: flex; gap: .5rem; flex-wrap: wrap; margin: .5rem 0 .75rem; }
-  .seg form { flex: 1 1 11rem; display: flex; margin: 0; }
-  .seg button {
-    width: 100%; text-align: left; position: relative;
-    display: flex; flex-direction: column; gap: .15rem;
-    padding: .7rem .85rem .75rem; border-radius: 10px;
-    border: 1px solid var(--line); background: var(--card); color: var(--ink);
-  }
-  .seg button:hover { border-color: var(--accent); }
-  .seg button[aria-pressed="true"] {
-    background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
-  }
-  .seg .t { font-weight: 700; font-size: .98rem; }
-  .seg .d { font-size: .78rem; opacity: .82; }
-  .seg .flag {
-    position: absolute; top: .55rem; right: .7rem;
-    font-size: .62rem; font-weight: 700; letter-spacing: .09em;
-  }
-  .statusline {
-    margin: 0 0 .5rem; padding: .55rem .75rem; border-radius: 8px;
-    background: var(--card); border: 1px solid var(--line); font-size: .92rem;
-  }
-  .statusline.live { border-color: var(--warn-line); background: var(--warn-bg); color: var(--warn-ink); }
   .addsubj { display: flex; flex-wrap: wrap; gap: .6rem; align-items: flex-end; }
   .addsubj label { display: flex; flex-direction: column; gap: .25rem; flex: 1 1 11rem; }
   .addsubj label span { font-size: .8rem; color: var(--muted); }
   .addsubj label em { font-style: normal; opacity: .75; }
-  .addsubj input {
+  .addsubj input, .addsubj select {
     font: inherit; padding: .5rem .6rem; border-radius: 8px;
     border: 1px solid var(--line); background: var(--bg); color: var(--ink);
   }
@@ -54,16 +31,15 @@
 {% endblock %}
 {% block content %}
 <h1>Round {{ round_id }}</h1>
-<p class="sub">Aggregation runs live off <code>responses.db</code> — these are the same
-numbers <code>python -m poc.cli_report</code> writes.</p>
+<p class="sub">Who is being reviewed, how far each review has got, and the reports.</p>
 
 {% if added %}
   <div class="notice" style="border-color: var(--ok); background: var(--card); color: var(--ink)">
-    <strong>{{ added.display_name }} added</strong> as <code>{{ added.subject_id }}</code>
-    in cohort <code>{{ added.cohort }}</code>.
+    <strong>{{ added.display_name }} added</strong> to {{ added.cohort }}{% if added.manager_name %},
+    reporting to {{ added.manager_name }}{% endif %}.
     <div class="muted" style="font-size:.88em; margin-top:.35rem">
       No responses yet — reports will say so until {{ added.min_n }} arrive.
-      <a href="/">Start a review →</a>
+      <a href="/admin/invites">Mint ballot links for them →</a>
     </div>
   </div>
 {% endif %}
@@ -72,11 +48,10 @@ numbers <code>python -m poc.cli_report</code> writes.</p>
 {% endif %}
 
 <div class="card">
-  <h2 style="margin-top:0">Add a subject</h2>
+  <h2 style="margin-top:0">Add a person to review</h2>
   <p class="muted" style="font-size:.9em; margin-top:0">
-    Appends a row to <code>inputs/subjects.csv</code> and registers them for this
-    round, so you can watch a subject go from no data to a published report. The
-    id is assigned automatically.
+    Adds them to the subject list for this round. Choose who they report to so the
+    reporting lines stay complete; leave it empty for the top of the organisation.
   </p>
   <form method="post" action="/admin/subjects" class="addsubj">
     <input type="hidden" name="round_id" value="{{ round_id }}">
@@ -86,19 +61,30 @@ numbers <code>python -m poc.cli_report</code> writes.</p>
              placeholder="e.g. Sofia Marin" autocomplete="off">
     </label>
     <label>
-      <span>Role <em>(optional)</em></span>
-      <input type="text" name="role" maxlength="80" placeholder="e.g. Talent Partner"
+      <span>Role <em>(job title, optional)</em></span>
+      <input type="text" name="role" maxlength="80" placeholder="e.g. Senior Developer"
              autocomplete="off">
     </label>
     <label>
-      <span>Cohort</span>
+      <span>Department</span>
       <input type="text" name="cohort" list="cohorts" maxlength="40"
              placeholder="unassigned" autocomplete="off">
       <datalist id="cohorts">
         {% for c in known_cohorts %}<option value="{{ c }}">{% endfor %}
       </datalist>
     </label>
-    <button class="primary" type="submit">Add subject</button>
+    <label>
+      <span>Reports to</span>
+      {# Only people already on the list: a manager typed as free text could name
+         nobody, and a line to nobody breaks the org chart it is there to build. #}
+      <select name="manager_id">
+        <option value="">— nobody (top of the organisation)</option>
+        {% for s in subjects|sort(attribute='display_name') %}
+          <option value="{{ s.subject_id }}">{{ s.display_name }}{% if s.role %} · {{ s.role }}{% endif %}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="primary" type="submit">Add person</button>
   </form>
   <p class="muted" style="font-size:.85em; margin-bottom:0">
     Their name joins the redaction list immediately, so free text naming them is
@@ -123,7 +109,10 @@ numbers <code>python -m poc.cli_report</code> writes.</p>
       <tr>
         <td>
           <strong>{{ s.display_name }}</strong>
-          <div class="muted" style="font-size:.85em">{{ s.cohort }}</div>
+          <div class="muted" style="font-size:.85em">
+            {% if s.role %}{{ s.role }} · {% endif %}{{ s.cohort }}
+            {% if s.manager_name %}<br>Reports to {{ s.manager_name }}{% endif %}
+          </div>
         </td>
         <td>
           {% if s.publishable %}
@@ -243,7 +232,7 @@ numbers <code>python -m poc.cli_report</code> writes.</p>
       </a>
     {% endfor %}
   </p>
-  <p><strong>Cohort</strong></p>
+  <p><strong>Department</strong></p>
   <p>
     {% for c in cohorts %}<a class="btn" href="/admin/cohort/{{ c }}">{{ c }}</a>{% endfor %}
   </p>
@@ -283,77 +272,12 @@ numbers <code>python -m poc.cli_report</code> writes.</p>
       </table>
     </div>
   {% else %}
-    <p class="muted">No model calls yet this session. Start a review and they appear here.</p>
+    <p class="muted">No model calls yet since the app last started.</p>
   {% endif %}
 </div>
 
 <div class="card">
   <h2 style="margin-top:0">Round controls</h2>
-
-  <p id="llm"><strong>LLM mode</strong></p>
-
-  {# One form, one button per mode. There is deliberately no Apply step: a
-     select plus a separate submit lets the control show a mode that is not in
-     force yet, which is indistinguishable from the toggle being broken. #}
-  {# One form PER OPTION, each carrying its mode in a hidden input.
-
-     A single form with three submit buttons depends on the browser sending the
-     clicked button's name/value. That is correct per spec, but it fails silently
-     in the one case a user hits by accident — submitting without activating a
-     button (Enter on a focused element) sends no `mode` at all and the endpoint
-     422s. A hidden input cannot be dropped, so the value always arrives. #}
-  <div class="seg">
-    {% for value, title, desc in [
-        ('stub',   'Offline', 'Deterministic · free · no network'),
-        ('openai', 'Live',    'Real calls · billed per turn'),
-        ('auto',   'Auto',    'Live when a key is set')] %}
-      <form method="post" action="/admin/llm-mode">
-        <input type="hidden" name="mode" value="{{ value }}">
-        <button type="submit" data-mode="{{ value }}" aria-pressed="{{ 'true' if llm.requested == value else 'false' }}">
-          {% if llm.requested == value %}<span class="flag">● ACTIVE</span>{% endif %}
-          <span class="t">{{ title }}</span>
-          <span class="d">{{ desc }}</span>
-        </button>
-      </form>
-    {% endfor %}
-  </div>
-
-  {# One sentence of truth. `requested` is what was chosen, `effective` is what
-     poc.llm will actually hand out — they differ for `auto`, and for `openai`
-     with no key, which is exactly when a single label would mislead. #}
-  {% if llm.degraded %}
-    <div class="notice">
-      <strong>Live was requested, but no API key is set — running offline.</strong>
-      Nothing is being sent anywhere. Set <code>OPENAI_API_KEY</code> in
-      <code>.env</code> and restart to make this take effect.
-    </div>
-  {% elif llm.requested == 'auto' %}
-    <p class="statusline">
-      Right now: <strong>Auto → {{ 'Live' if llm.effective == 'openai' else 'Offline' }}</strong> —
-      {% if llm.effective == 'openai' %}
-        a key is present, so questions are generated by <code>{{ llm.model }}</code> and billed per turn.
-      {% else %}
-        no key is present, so no calls are made.
-      {% endif %}
-    </p>
-  {% elif llm.effective == 'openai' %}
-    <p class="statusline live">
-      Right now: <strong>Live</strong> — questions are generated by
-      <code>{{ llm.model }}</code>. Every rater turn is a billed API call.
-    </p>
-  {% else %}
-    <p class="statusline">
-      Right now: <strong>Offline</strong> — no API calls are made. Wording is
-      deterministic, which is what the test suite exercises.
-    </p>
-  {% endif %}
-
-  <p class="muted" style="font-size:.85em">
-    Applies to the next question generated; answers already stored are unaffected.
-    Written to <code>data/web-settings.json</code>, so it survives a reload and a restart.
-  </p>
-
-  <hr style="border:0;border-top:1px solid var(--line);margin:1rem 0">
 
   <p><strong>Freeze</strong></p>
   {% if freeze %}

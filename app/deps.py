@@ -1,120 +1,64 @@
-"""Cross-cutting request concerns: who is asking, and which LLM mode is live.
+"""Cross-cutting request concerns: who is asking, and whether the model is available.
 
-Both are deliberately mock. PLAN.md §3 puts real RBAC (OIDC, session cookies,
-audit log) in Week 3; what this module provides is the *shape* of that control
-so the routes are written against a dependency from the start, and swapping the
-implementation later does not move any route code.
+The role comes from the signed session `app.auth` issues at sign-in. It used to
+come from a cookie the visitor set with a dropdown, which is why `require_hr` is
+written as a dependency: the routes never cared where the role came from, so
+replacing that source moved no route code.
 
-The role lives in a plain cookie a user can edit. That is fine and it is stated
-on the page: this gates a demo, not a secret.
-
-The LLM mode lives in a file rather than in the process. An earlier version set
-`os.environ` once at import, which meant the toggle silently reverted to stub on
-every `--reload` and every restart — the setting existed only in the memory of a
-process that uvicorn replaces whenever a file is saved.
+There is no longer a model-mode switch. The demo's value is the conversation the
+model conducts, so it runs live whenever a key is configured; without one it says
+so in a banner instead of offering an "offline" mode as if it were a feature.
+`C360_LLM_MODE=stub` still forces the deterministic client — the test suite runs
+on it — but nothing in the interface sets it.
 """
 
 from __future__ import annotations
-
-import json
-import os
 
 from fastapi import HTTPException, Request
 
 from poc import config
 
-ROLE_COOKIE = "c360_role"
-ROLE_RATER = "rater"
-ROLE_HR = "hr_admin"
-ROLES = {
-    ROLE_RATER: "Rater",
-    ROLE_HR: "HR / Admin",
-}
-
-# The web demo starts offline on purpose: clicking through the whole Likert battery should
-# not cost anything, and stub mode is what the test suite exercises.
-DEFAULT_LLM_MODE = "stub"
-VALID_LLM_MODES = ("stub", "openai", "auto")
-SETTINGS_PATH = config.DATA / "web-settings.json"
+from . import auth
+from .auth import ROLE_HR, ROLE_RATER, ROLES  # noqa: F401  (re-exported for callers)
 
 
-def current_role(request: Request) -> str:
-    role = request.cookies.get(ROLE_COOKIE, ROLE_RATER)
-    return role if role in ROLES else ROLE_RATER
+def current_session(request: Request) -> dict | None:
+    return auth.decode_session(request.cookies.get(auth.SESSION_COOKIE))
+
+
+def current_role(request: Request) -> str | None:
+    """The signed-in role, or None when signed out."""
+    session = current_session(request)
+    return session["role"] if session else None
 
 
 def require_hr(request: Request) -> str:
-    """Gate the reporting side.
+    """Gate the reporting and administration side.
 
     Reports are the one surface where the audience matters: a rater seeing a
-    cohort report learns things about colleagues that no one consented to share.
+    department report learns things about colleagues that no one consented to
+    share. Signed-out requests never get here — the sign-in middleware redirects
+    them first — so this only has to tell a rater no.
     """
     role = current_role(request)
     if role != ROLE_HR:
-        raise HTTPException(
-            status_code=403,
-            detail="Reports are visible to HR / Admin only. Switch role in the header.",
-        )
+        raise HTTPException(status_code=403, detail="This page is for HR admins only.")
     return role
 
 
-# ---------------------------------------------------------------------------
-# LLM mode
-# ---------------------------------------------------------------------------
-
-def _read_settings() -> dict:
-    try:
-        return json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
-
-
-def _write_settings(data: dict) -> None:
-    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
-
-
-def stored_llm_mode() -> str:
-    """The operator's last choice, or the offline default."""
-    mode = _read_settings().get("llm_mode", DEFAULT_LLM_MODE)
-    return mode if mode in VALID_LLM_MODES else DEFAULT_LLM_MODE
-
-
-def set_llm_mode(mode: str) -> None:
-    """Record the choice so it survives a reload, and apply it to this process."""
-    if mode not in VALID_LLM_MODES:
-        raise HTTPException(status_code=400, detail=f"Unknown LLM mode {mode!r}")
-    _write_settings({**_read_settings(), "llm_mode": mode})
-    os.environ["C360_LLM_MODE"] = mode
-
-
-def apply_llm_mode() -> str:
-    """Push the stored choice into the environment `poc.llm` reads.
-
-    Called per request rather than once at import, for two reasons. Ordering: a
-    route calls the model inside its handler, which runs before any template is
-    rendered, so a context processor would apply the mode a beat too late.
-    Durability: uvicorn's reloader replaces the worker process on every file
-    save, and anything held only in module state goes with it.
-    """
-    mode = stored_llm_mode()
-    os.environ["C360_LLM_MODE"] = mode
-    return mode
-
-
 def llm_status() -> dict:
-    """What mode is actually in force, and whether the request was honoured.
+    """Whether the model is actually in use, and why not when it is not.
 
-    `requested` and `effective` differ when someone asks for openai with no key —
-    `config.llm_settings()` silently falls back, and a demo that does not say so
-    looks like the model is being called when it is not.
+    `reason` separates the two ways to be without it: no key configured (the case
+    the banner is for), and the deterministic client forced on purpose.
     """
-    requested = stored_llm_mode()
     settings = config.llm_settings()
-    return {
-        "requested": requested,
-        "effective": settings.mode,
-        "model": settings.model,
-        "has_key": bool(settings.api_key),
-        "degraded": requested == "openai" and settings.mode == "stub",
-    }
+    live = settings.mode == "openai"
+    if live:
+        reason = None
+    elif not settings.api_key:
+        reason = "no_key"
+    else:
+        reason = "forced_offline"
+    return {"live": live, "model": settings.model, "has_key": bool(settings.api_key),
+            "reason": reason}

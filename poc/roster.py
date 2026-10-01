@@ -24,14 +24,26 @@ from . import config
 from .graph.redaction import _derive
 
 REQUIRED_COLUMNS = ["subject_id", "display_name", "role", "cohort"]
+# Optional so a roster written before reporting lines existed still loads — the
+# live copy on a deployment's disk is one, and it is never overwritten.
+OPTIONAL_COLUMNS = ["manager_id"]
+COLUMNS = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
 
 
 @dataclass(frozen=True)
 class Subject:
+    """One person on the roster.
+
+    `role` is the job title and `cohort` the department — the column keeps its
+    old name so existing files load. `manager_id` is the `subject_id` of who they
+    report to, empty at the top of the organisation; peers are the people who
+    share it.
+    """
     subject_id: str
     display_name: str
     role: str
     cohort: str
+    manager_id: str = ""
 
 
 @lru_cache(maxsize=1)
@@ -64,8 +76,20 @@ def load_subjects(path: Path | None = None) -> tuple[Subject, ...]:
             raise ValueError(f"{path} line {line_no}: duplicate subject_id {sid!r}.")
         seen.add(sid)
         subjects.append(Subject(sid, name, (row["role"] or "").strip(),
-                                (row["cohort"] or "").strip() or "unassigned"))
-    return tuple(subjects)
+                                (row["cohort"] or "").strip() or "unassigned",
+                                (row.get("manager_id") or "").strip()))
+
+    # Lenient on purpose: a hand-edited file naming a manager who is not on the
+    # roster loses that line rather than failing the load. A failed load is not
+    # contained — `redaction_names` would lose every subject's name, and free text
+    # naming them would reach the subject's copy unmasked. `add_subject` is where
+    # a bad reference is refused.
+    known = {s.subject_id for s in subjects}
+    return tuple(
+        s if s.manager_id in known and s.manager_id != s.subject_id
+        else Subject(s.subject_id, s.display_name, s.role, s.cohort)
+        for s in subjects
+    )
 
 
 def redaction_names(path: Path | None = None) -> tuple[set[str], set[str]]:
@@ -133,7 +157,7 @@ def next_subject_id(subjects: tuple[Subject, ...] | None = None,
 
 def add_subject(display_name: str, role: str = "", cohort: str = "",
                 subject_id: str | None = None, reserved: set[str] | None = None,
-                path: Path | None = None) -> Subject:
+                path: Path | None = None, manager_id: str = "") -> Subject:
     """Append a subject to the roster CSV and invalidate the cached read.
 
     The CSV is written rather than the database alone, because this file is the
@@ -150,6 +174,7 @@ def add_subject(display_name: str, role: str = "", cohort: str = "",
     display_name = (display_name or "").strip()
     role = (role or "").strip()
     cohort = (cohort or "").strip() or "unassigned"
+    manager_id = (manager_id or "").strip()
 
     if not display_name:
         raise ValueError("A display name is required — it titles every report about this person.")
@@ -165,23 +190,40 @@ def add_subject(display_name: str, role: str = "", cohort: str = "",
             "make their reports indistinguishable."
         )
 
+    if manager_id and not any(s.subject_id == manager_id for s in existing):
+        raise ValueError(f"The manager {manager_id!r} is not on the roster.")
+
     subject_id = (subject_id or next_subject_id(existing, reserved, path)).strip()
     if any(s.subject_id == subject_id for s in existing):
         raise ValueError(f"subject_id {subject_id!r} is already taken.")
 
-    header_needed = not path.exists() or not path.read_text(encoding="utf-8").strip()
-    body = "" if header_needed else path.read_text(encoding="utf-8")
-    if body and not body.endswith("\n"):
-        body += "\n"
+    # Rewritten whole rather than appended to: a roster from before `manager_id`
+    # existed has a four-column header, and appending a five-column row to it
+    # would leave the new column unnamed. Every existing row is carried over as
+    # read, so nothing an earlier edit wrote is lost.
+    new = Subject(subject_id, display_name, role, cohort, manager_id)
+    rows = [*_raw_rows(path), {
+        "subject_id": new.subject_id, "display_name": new.display_name,
+        "role": new.role, "cohort": new.cohort, "manager_id": new.manager_id,
+    }]
 
-    # csv.writer rather than an f-string: a display name containing a comma would
-    # otherwise write a row that parses back as two columns.
+    # csv.DictWriter rather than an f-string: a display name containing a comma
+    # would otherwise write a row that parses back as two columns.
     buf = io.StringIO()
-    writer = csv.writer(buf, lineterminator="\n")
-    if header_needed:
-        writer.writerow(REQUIRED_COLUMNS)
-    writer.writerow([subject_id, display_name, role, cohort])
-    path.write_text(body + buf.getvalue(), encoding="utf-8")
+    writer = csv.DictWriter(buf, fieldnames=COLUMNS, lineterminator="\n",
+                            extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({c: (row.get(c) or "") for c in COLUMNS})
+    path.write_text(buf.getvalue(), encoding="utf-8")
 
     load_subjects.cache_clear()
-    return Subject(subject_id, display_name, role, cohort)
+    return new
+
+
+def _raw_rows(path: Path) -> list[dict]:
+    """The file's rows exactly as written, for rewriting it without loss."""
+    if not path.exists() or not path.read_text(encoding="utf-8").strip():
+        return []
+    with path.open(encoding="utf-8", newline="") as fh:
+        return list(csv.DictReader(fh))

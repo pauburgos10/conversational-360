@@ -168,15 +168,10 @@ def freeze(round_id: str = Form(DEFAULT_ROUND)):
     return RedirectResponse("/admin", status_code=303)
 
 
-@router.post("/llm-mode")
-def llm_mode(mode: str = Form(...)):
-    deps.set_llm_mode(mode)
-    return RedirectResponse("/admin", status_code=303)
-
-
 @router.get("/invites", response_class=HTMLResponse)
 def invite_list(request: Request, round_id: str = DEFAULT_ROUND,
-                error: str | None = None, assigned: str | None = None):
+                error: str | None = None, assigned: str | None = None,
+                minted: str | None = None):
     """Pre-minted ballot links: who each one went to, and how far it has got.
 
     Each row shows whether that link has been opened and whether it was
@@ -185,6 +180,9 @@ def invite_list(request: Request, round_id: str = DEFAULT_ROUND,
     address turns that from a count into a next action — it names who is still
     owed a reminder.
     """
+    # Started self-assessments get their link before the page lists them, so one
+    # filled in before links existed shows as a link to open, not a mint button.
+    rounds.backfill_self_links(round_id)
     rows = rounds.invite_rows(round_id)
     return request.app.state.templates.TemplateResponse(
         request,
@@ -194,8 +192,13 @@ def invite_list(request: Request, round_id: str = DEFAULT_ROUND,
             "rows": rows,
             "summary": rounds.invite_summary(rows),
             "subjects": rounds.subject_state(round_id),
+            "self_links": rounds.self_links(round_id),
             "error": error,
             "assigned": assigned,
+            # The links just minted, so the page can point at them: after minting
+            # the next thing HR does is copy one, and hunting a long table for a
+            # fresh random id is where the wrong link gets sent.
+            "minted": set((minted or "").split(",")) - {""},
         },
     )
 
@@ -204,10 +207,17 @@ def invite_list(request: Request, round_id: str = DEFAULT_ROUND,
 def mint(subject_id: str = Form(...), n: int = Form(2), round_id: str = Form(DEFAULT_ROUND),
          email: str = Form("")):
     try:
-        rounds.mint_invites(subject_id, n, round_id, email=email)
+        ids = rounds.mint_invites(subject_id, n, round_id, email=email)
     except ValueError as exc:
         return RedirectResponse(f"/admin/invites?error={quote(str(exc))}", status_code=303)
-    return RedirectResponse("/admin/invites", status_code=303)
+    return RedirectResponse(f"/admin/invites?minted={quote(','.join(ids))}", status_code=303)
+
+
+@router.post("/self-links")
+def mint_self(subject_id: str = Form(...), round_id: str = Form(DEFAULT_ROUND)):
+    """Mint (or re-show) a subject's self-assessment link, to send to them."""
+    rounds.mint_self_link(subject_id, round_id)
+    return RedirectResponse(f"/admin/invites#self-{quote(subject_id)}", status_code=303)
 
 
 @router.post("/invites/assign")

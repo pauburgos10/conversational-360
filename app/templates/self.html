@@ -31,6 +31,14 @@
   report as a comparison.
 </p>
 
+{% if viewing_as_hr %}
+  <div class="notice">
+    <strong>You're viewing {{ subject_display }}'s self-assessment as HR admin.</strong>
+    The answers saved so far are filled in below. Saving a page here changes their
+    answers.
+  </div>
+{% endif %}
+
 <div class="bar"><span style="width: {{ (100 * n_answered / n_items)|round(0, 'floor') }}%"></span></div>
 <p class="muted" style="font-size:.85em">{{ n_answered }} of {{ n_items }} answered.</p>
 
@@ -45,7 +53,7 @@
     <div class="jump">
       {% for pg in pages %}
         <a class="btn {% if pg.n_done == pg.n_items %}full{% endif %}"
-           href="/self/{{ subject_id }}?page={{ pg.index }}">
+           href="/self/{{ token }}?page={{ pg.index }}">
           {{ pg.name }} <span class="n">{{ pg.n_done }}/{{ pg.n_items }}</span>
         </a>
       {% endfor %}
@@ -53,7 +61,7 @@
     <a class="btn primary" href="/">Back to the round</a>
   </div>
 {% else %}
-<form method="post" action="/self/{{ subject_id }}">
+<form method="post" action="/self/{{ token }}">
   <input type="hidden" name="page" value="{{ page }}">
   <input type="hidden" name="round_id" value="{{ round_id }}">
 

@@ -15,6 +15,10 @@ what makes a partly-filled form legible from the outside: `rounds.self_status`
 reads the same rows and reports "in progress" rather than treating anything
 short of all {n} items as nothing at all.
 
+The form is reached only through a link HR mints for the subject
+(`rounds.mint_self_link`). It used to be addressed by subject id, which with one
+shared rater account let anyone signed in fill in anyone's self-assessment.
+
 Every question here is rendered from `banks.SELF`, the second person singular
 wording. The reader of this page is the person being assessed, and asking them
 "does this person meet agreed deadlines?" about themselves reads as a form built
@@ -29,13 +33,26 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from poc import banks, store
 from poc.session import DEFAULT_ROUND, subject_display_name
 
-from .. import rounds
+from .. import deps, rounds
 
 router = APIRouter(prefix="/self")
 
 
-@router.get("/{subject_id}", response_class=HTMLResponse)
-def form(request: Request, subject_id: str, page: int = 0, round_id: str = DEFAULT_ROUND):
+_UNKNOWN_LINK = ("This self-assessment link isn't valid. Check you have the whole link "
+                 "HR sent you, or ask them to send it again.")
+
+
+def _not_found(request: Request):
+    return request.app.state.templates.TemplateResponse(
+        request, "error.html", {"message": _UNKNOWN_LINK}, status_code=404
+    )
+
+
+@router.get("/{token}", response_class=HTMLResponse)
+def form(request: Request, token: str, page: int = 0, round_id: str = DEFAULT_ROUND):
+    subject_id = rounds.subject_for_self_token(token, round_id)
+    if subject_id is None:
+        return _not_found(request)
     bank = banks.load_bank()
     competencies = bank.competencies
     try:
@@ -67,8 +84,11 @@ def form(request: Request, subject_id: str, page: int = 0, round_id: str = DEFAU
         request,
         "self.html",
         {
-            "subject_id": subject_id,
+            "token": token,
             "subject_display": display,
+            # The form has no submit step and stays editable until the round
+            # closes, so HR opening it to read the answers could change them.
+            "viewing_as_hr": deps.current_role(request) == deps.ROLE_HR,
             "round_id": round_id,
             "page": page,
             "n_pages": len(competencies),
@@ -87,8 +107,8 @@ def form(request: Request, subject_id: str, page: int = 0, round_id: str = DEFAU
     )
 
 
-@router.post("/{subject_id}", response_class=HTMLResponse)
-async def save(request: Request, subject_id: str, page: int = Form(0),
+@router.post("/{token}", response_class=HTMLResponse)
+async def save(request: Request, token: str, page: int = Form(0),
                round_id: str = Form(DEFAULT_ROUND), goto: int | None = Form(None)):
     """Save this page, then go where the button asked.
 
@@ -96,6 +116,9 @@ async def save(request: Request, subject_id: str, page: int = Form(0),
     a page writes what is on it first, so navigating can never be the thing that
     loses an answer.
     """
+    subject_id = rounds.subject_for_self_token(token, round_id)
+    if subject_id is None:
+        return _not_found(request)
     form_data = await request.form()
     values = {
         key[len("item_"):]: int(value)
@@ -106,4 +129,4 @@ async def save(request: Request, subject_id: str, page: int = Form(0),
         store.save_self_assessment(subject_id, round_id, values)
 
     target = page + 1 if goto is None else goto
-    return RedirectResponse(f"/self/{subject_id}?page={max(0, target)}", status_code=303)
+    return RedirectResponse(f"/self/{token}?page={max(0, target)}", status_code=303)

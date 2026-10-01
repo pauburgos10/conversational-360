@@ -121,13 +121,16 @@ A new table must be classified in `BOUNDARY` in `poc/cli_diagram.py`, then run
 
 ## Environment variables
 
-All off by default, so local work and the suite are unaffected.
+The suite sets its own accounts and forces stub mode (`tests/conftest.py`), so
+your `.env` never affects it.
 
 | Variable | Purpose |
 |---|---|
-| `OPENAI_API_KEY`, `OPENAI_MODEL` | Live model. Unset key ⇒ stub mode |
-| `C360_LLM_MODE` | `stub` / `openai` / `auto` |
-| `C360_DEMO_USER`, `C360_DEMO_PASSWORD` | HTTP Basic over the site; both or neither |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | Live model. The app runs live whenever the key is set; without it every page shows a "model not available" banner. There is no in-app switch |
+| `C360_LLM_MODE` | `stub` forces the deterministic client (tests). Leave unset otherwise — on Render it would switch the model off for everyone |
+| `C360_RATER_USER`, `C360_RATER_PASSWORD` | The rater account. Both halves or the account does not exist |
+| `C360_HR_USER`, `C360_HR_PASSWORD` | The HR admin account. With no account configured nobody can sign in — locally too |
+| `C360_SESSION_SECRET` | Optional session-signing key; derived from the accounts when unset |
 | `C360_DEMO_BANNER` | "Every person here is synthetic" banner |
 | `C360_SEED_ON_BOOT` | Seed the synthetic round if the store is empty |
 | `C360_ROSTER_IN_DATA` | Keep the subject list in `data/` — required with a disk |
@@ -143,8 +146,11 @@ Render configuration is in `DEPLOY.md`; `render.yaml` records the same settings.
 - **Seeding wipes `responses.db`.** Back it up if it holds anything worth keeping.
 - **Render's free plan wipes `data/`** when the service sleeps, and the reseeded
   round makes the page look intact.
-- **The role switcher is a cookie the visitor sets.** The demo password is not
-  authentication; anyone past it can read every report.
+- **Sign-in is two shared accounts, not real authentication.** Everyone with the
+  HR login reads every report, attributed. Fine for synthetic data only.
+- **Reviews start only from minted links.** `/b/<id>` refuses an id that is
+  neither in `invites.json` nor already checkpointed; the old `/start` route is
+  gone. Self-assessments likewise go through `data/self_links.json` tokens.
 
 ## Conventions
 

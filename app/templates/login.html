@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block head %}
+<style>
+  .signin { max-width: 22rem; margin: 2rem auto; }
+  .signin label { display: flex; flex-direction: column; gap: .25rem; margin-bottom: .75rem; }
+  .signin label span { font-size: .85rem; color: var(--muted); }
+  .signin input {
+    font: inherit; padding: .55rem .65rem; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+  }
+  .signin button { width: 100%; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="card signin">
+  <h1>Sign in</h1>
+  <p class="sub">Use the account you were given for this demo.</p>
+  {% if error %}
+    <div class="notice">That username and password did not match an account.</div>
+  {% endif %}
+  {% if not configured %}
+    {# Fails closed: with no account configured there is no default password to
+       fall back on, and saying why saves the administrator a guessing game. #}
+    <div class="notice">
+      No accounts are configured yet, so nobody can sign in. Please contact your
+      administrator.
+    </div>
+  {% endif %}
+  <form method="post" action="/login">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>
+      <span>Username</span>
+      <input type="text" name="username" required autocomplete="username" autofocus>
+    </label>
+    <label>
+      <span>Password</span>
+      <input type="password" name="password" required autocomplete="current-password">
+    </label>
+    <button class="primary" type="submit">Sign in</button>
+  </form>
+</div>
+{% endblock %}

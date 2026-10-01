@@ -10,7 +10,6 @@ FROM python:3.13-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    C360_LLM_MODE=stub \
     C360_SEED_ON_BOOT=1 \
     C360_DEMO_BANNER=1
 
@@ -28,8 +27,9 @@ COPY inputs/ ./inputs/
 # `data/` is generated — the round is seeded on first boot by the lifespan hook.
 RUN mkdir -p data
 
-# Offline by default. The demo must never depend on an API key being present,
-# and stub mode is the deterministic path the test suite exercises.
+# No C360_LLM_MODE here. The app runs live whenever OPENAI_API_KEY is set and
+# shows a "model not available" banner when it is not; there is no in-app switch
+# any more, so pinning stub in the image would keep the model off for good.
 #
 # $PORT is supplied by the platform (Render, Railway, Fly all set it); the
 # fallback keeps `docker run -p 8000:8000` working locally. Shell form so the
