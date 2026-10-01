@@ -452,11 +452,8 @@ def invite_rows(round_id: str = DEFAULT_ROUND) -> list[dict]:
     # closed the tab had no way back and HR no way to hand them one. Only the
     # in-progress ones are listed: a submitted review needs no link, and one that
     # stopped before consent or was declined must stay invisible (`ballot_states`
-    # already leaves those out, which is the promise consent.md makes).
-    #
-    # The link carries `?subject=`: `/b/<id>` resolves the subject through the
-    # invite file, and for a ballot that is not in it the page would fall back to
-    # S1 and head the conversation with the wrong person's name.
+    # already leaves those out, which is the promise consent.md makes). The bare
+    # `/b/<id>` is enough: the chat page reads the subject from the checkpoint.
     invited_ids = {i.ballot_id for invites in minted.values() for i in invites}
     direct = sorted(
         (s for s in states.values()
@@ -469,7 +466,7 @@ def invite_rows(round_id: str = DEFAULT_ROUND) -> list[dict]:
             "subject_id": state.subject_id,
             "display_name": subject["display_name"] if subject else state.subject_id,
             "ballot_id": state.ballot_id,
-            "link": f"/b/{state.ballot_id}?subject={state.subject_id}",
+            "link": f"/b/{state.ballot_id}",
             "invited": False,
             "email": "",
             "assigned": False,

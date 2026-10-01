@@ -111,6 +111,17 @@ class Interview:
     def exists(self) -> bool:
         return bool(self._app.get_state(self._cfg).values)
 
+    @property
+    def saved_subject_id(self) -> str | None:
+        """Who an existing conversation is about, as recorded when it started.
+
+        The checkpoint is the authority once a ballot exists. The `subject_id`
+        passed to the constructor only decides who a *new* conversation is about,
+        and a caller that guessed it — from a link with no `?subject=` — would
+        otherwise head someone else's review with the wrong name.
+        """
+        return self._app.get_state(self._cfg).values.get("subject_id") or None
+
     def open(self) -> Turn:
         """Start a new interview, or re-present the question a resumed one holds."""
         if self.exists:

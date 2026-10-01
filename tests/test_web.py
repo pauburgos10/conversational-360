@@ -1011,13 +1011,13 @@ def test_a_review_started_without_an_invite_is_listed_with_its_link(client):
 
     as_hr(client)
     page = client.get("/admin/invites").text
-    assert f"/b/{ballot_id}?subject=S2" in page
+    assert f'href="/b/{ballot_id}"' in page
     assert "Started without an invite" in page
     assert "1 in progress without an invite" in page
 
 
 def test_the_recovered_link_resumes_the_same_review_about_the_same_person(client):
-    """Without `?subject=` a non-invite ballot falls back to S1 in the heading."""
+    """The listed link is the bare id; the subject comes from the checkpoint."""
     ballot_id = start(client, "S2")
     reply(client, ballot_id, "yes")
     reply(client, ballot_id, "2")
@@ -1026,6 +1026,46 @@ def test_the_recovered_link_resumes_the_same_review_about_the_same_person(client
     page = client.get(row["link"]).text
     assert "Feedback on Subject Two" in page
     assert rounds.ballot_states()[ballot_id].answered == 1, "resumed, not restarted"
+
+
+def test_a_bare_link_names_the_person_the_review_is_about(client):
+    """A review from "Start a review" is not in the invite file. Its bare link
+    used to fall back to S1 and head it "Feedback on" the wrong person."""
+    ballot_id = start(client, "S2")
+    reply(client, ballot_id, "yes")
+    reply(client, ballot_id, "2")
+
+    page = client.get(f"/b/{ballot_id}").text
+    assert "Feedback on Subject Two" in page
+    assert "Feedback on Subject One" not in page
+
+
+def test_a_subject_in_the_link_cannot_relabel_an_existing_review(client):
+    """Once a review exists, its checkpoint decides who it is about, not the URL."""
+    ballot_id = start(client, "S2")
+    reply(client, ballot_id, "yes")
+
+    page = client.get(f"/b/{ballot_id}?subject=S1").text
+    assert "Feedback on Subject Two" in page
+
+
+def test_the_redirect_after_an_edit_keeps_the_right_person(client):
+    """`_after_edit` redirects to the bare `/b/<id>` — the same fallback, unprompted."""
+    ballot_id = start(client, "S2")
+    _to_review(client, ballot_id)
+    iv = Interview(ballot_id)
+    item = next(iter(iv._app.get_state(iv._cfg).values["likert"]))
+
+    r = client.post(f"/b/{ballot_id}/edit/rating", data={"item_id": item, "value": 3})
+    assert "Feedback on Subject Two" in r.text
+
+
+def test_a_new_ballot_still_starts_about_the_subject_it_was_given(client):
+    """No checkpoint yet: an invite knows its subject, and "Start a review" says so."""
+    assert "Feedback on Subject Two" in client.get(
+        f"/b/{rounds.mint_invites('S2', 1)[0]}").text
+    r = client.post("/start", data={"subject_id": "S2"})
+    assert "Feedback on Subject Two" in r.text
 
 
 def test_a_review_stopped_at_consent_or_declined_is_not_listed(client):

@@ -32,6 +32,27 @@ def _templates(request: Request):
     return request.app.state.templates
 
 
+def _interview(ballot_id: str, round_id: str, hint: str | None = None) -> Interview:
+    """The conversation behind a ballot link, about the right person.
+
+    Who a ballot is about is settled once, when it starts, and kept in the
+    checkpoint — so for an existing ballot that is what decides, and the link
+    needs nothing but its id. Only a ballot with no checkpoint yet falls through:
+    a minted invite knows its subject, and "Start a review" passes `?subject=` on
+    its first redirect.
+
+    Each route used to guess instead — the query string, else the invite file,
+    else S1. A review started from the main page is not in the invite file, so
+    its bare link, and every redirect after an edit, headed it "Feedback on" the
+    first subject on the roster.
+    """
+    interview = Interview(ballot_id, hint or "S1", round_id)
+    interview.subject_id = (interview.saved_subject_id
+                            or rounds.subject_for_ballot(ballot_id, round_id)
+                            or hint or "S1")
+    return interview
+
+
 @router.post("/start")
 def start(request: Request, subject_id: str = Form(...)):
     """Mint a ballot id and hand back its link.
@@ -46,14 +67,11 @@ def start(request: Request, subject_id: str = Form(...)):
 @router.get("/b/{ballot_id}", response_class=HTMLResponse)
 def chat(request: Request, ballot_id: str, subject: str | None = None,
          round_id: str = DEFAULT_ROUND, notice: str | None = None):
-    # A pre-minted link carries no query string, so fall back to the invite list
-    # before defaulting — otherwise every invite link would open against S1.
-    subject_id = subject or rounds.subject_for_ballot(ballot_id, round_id) or "S1"
 
     # Everything the graph does for this turn lands between these two reads.
     before = trace.latest_seq()
     try:
-        interview = Interview(ballot_id, subject_id, round_id)
+        interview = _interview(ballot_id, round_id, subject)
         turn = interview.open()
     except LookupError as exc:
         return _templates(request).TemplateResponse(
@@ -86,8 +104,7 @@ def _review_for(interview: Interview, turn) -> dict | None:
 @router.post("/b/{ballot_id}/reply", response_class=HTMLResponse)
 def reply(request: Request, ballot_id: str, reply: str = Form(...),
           round_id: str = DEFAULT_ROUND):
-    subject_id = rounds.subject_for_ballot(ballot_id, round_id) or "S1"
-    interview = Interview(ballot_id, subject_id, round_id)
+    interview = _interview(ballot_id, round_id)
 
     # Guard the case where a fragment POST arrives for a thread that has no
     # checkpoint — a restarted server with a stale tab open, most likely.
@@ -146,8 +163,7 @@ def _after_edit(ballot_id: str, notice: str | None = None) -> RedirectResponse:
 @router.post("/b/{ballot_id}/edit/rating")
 def edit_rating(ballot_id: str, item_id: str = Form(...), value: int = Form(...),
                 round_id: str = DEFAULT_ROUND):
-    subject_id = rounds.subject_for_ballot(ballot_id, round_id) or "S1"
-    interview = Interview(ballot_id, subject_id, round_id)
+    interview = _interview(ballot_id, round_id)
     if not interview.exists:
         return _after_edit(ballot_id, "That conversation is no longer open.")
     try:
@@ -160,8 +176,7 @@ def edit_rating(ballot_id: str, item_id: str = Form(...), value: int = Form(...)
 @router.post("/b/{ballot_id}/edit/answer")
 def edit_answer(ballot_id: str, ref: str = Form(...), text: str = Form(...),
                 round_id: str = DEFAULT_ROUND):
-    subject_id = rounds.subject_for_ballot(ballot_id, round_id) or "S1"
-    interview = Interview(ballot_id, subject_id, round_id)
+    interview = _interview(ballot_id, round_id)
     if not interview.exists:
         return _after_edit(ballot_id, "That conversation is no longer open.")
     try:
