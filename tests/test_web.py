@@ -1511,3 +1511,25 @@ def test_hr_opening_a_self_assessment_sees_the_answers_and_is_warned(client):
     assert "viewing Subject One's self-assessment as HR admin" in page
     block = page.split(f'name="item_{first}" value="3"')[1][:30]
     assert "checked" in block, "the saved answer is shown"
+
+
+# ---------------------------------------------------------------------------
+# what stays on screen during the interview
+# ---------------------------------------------------------------------------
+
+def test_the_pinned_header_names_the_subject_and_promises_the_review_step(client):
+    """Raters asked why they could not fix an earlier answer: the review step
+    comes at the end, and the page now says so from the first question on."""
+    ballot_id = start(client, "S2")
+    page = " ".join(client.get(f"/b/{ballot_id}").text.split())
+    sticky = page.split('class="chatsticky"')[1].split("</div> </div>")[0]
+    assert "Feedback on Subject Two" in sticky
+    assert "Bookmark this page" in sticky
+    assert "You can change any answer at the end" in sticky
+
+
+def test_every_page_offers_the_theme_toggle(client):
+    """Including sign-in, the first page anyone sees."""
+    assert 'id="theme-toggle"' in client.get("/").text
+    with TestClient(app) as anon:
+        assert 'id="theme-toggle"' in anon.get("/login").text

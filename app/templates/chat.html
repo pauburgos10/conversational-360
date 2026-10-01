@@ -4,8 +4,17 @@
 
 {% block head %}
 <style>
-  .chathead { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem; }
+  /* Pinned under the top bar, so who the review is about — and that every
+     answer can still be changed at the end — never scrolls out of sight. */
+  .chatsticky {
+    position: sticky; top: var(--topbar-h, 3.2rem); z-index: 5;
+    background: var(--bg); border-bottom: 1px solid var(--line);
+    margin: -1rem -1rem .75rem; padding: .75rem 1rem .6rem;
+  }
+  .chathead { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
   .chathead h1 { font-size: 1.15rem; margin: 0; }
+  .chatnotes { margin: .3rem 0 0; padding: 0; list-style: none; font-size: .82rem; color: var(--muted); }
+  .chatnotes li { margin: .1rem 0; }
   #log { display: flex; flex-direction: column; gap: .6rem; padding-bottom: 1rem; }
   .msg { display: flex; }
   .msg.bot { justify-content: flex-start; }
@@ -89,14 +98,20 @@
 {% endblock %}
 
 {% block content %}
-<div class="chathead">
-  <h1>Feedback on {{ subject_display }}</h1>
-  <span class="pill">round {{ round_id }}</span>
+<div class="chatsticky">
+  <div class="chathead">
+    <h1>Feedback on {{ subject_display }}</h1>
+    <span class="pill">round {{ round_id }}</span>
+  </div>
+  {# Worded to stay true at every stage: replies swap only the conversation
+     below, so this header is never re-rendered mid-interview. #}
+  <ul class="chatnotes">
+    <li><strong>Bookmark this page.</strong> Your progress saves as you go, and this
+      link brings you back to where you stopped.</li>
+    <li><strong>You can change any answer at the end.</strong> Before you submit,
+      you'll see all your ratings and written answers together and can edit them.</li>
+  </ul>
 </div>
-<p class="sub">
-  Your link is <code>{{ request.url.path }}</code> — bookmark it. Closing this tab
-  saves your progress; reopening the same link continues from this exact question.
-</p>
 
 {% if answering_as_hr %}
   <div class="notice">

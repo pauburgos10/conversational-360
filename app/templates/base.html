@@ -4,21 +4,43 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Conversational 360°{% endblock %}</title>
+<script>
+  // Applied before the stylesheet paints, so a saved choice never flashes the
+  // other theme first. Storage can be unavailable (private windows, blocked
+  // site data); the page then simply follows the system setting.
+  try {
+    var saved = localStorage.getItem("c360-theme");
+    if (saved === "light" || saved === "dark") document.documentElement.dataset.theme = saved;
+  } catch (e) {}
+</script>
 <script src="/static/htmx.min.js"></script>
 <style>
+  /* Light by default; dark when the system asks for it, unless the visitor
+     picked light — and dark whenever they picked dark. The dark values appear
+     twice because CSS has no way to share a block between a media query and
+     an attribute selector. */
   :root {
+    color-scheme: light;
     --bg: #f6f7f9; --card: #ffffff; --ink: #1a1d21; --muted: #666e78;
     --line: #e2e5ea; --accent: #2f5d8a; --accent-ink: #ffffff;
     --warn-bg: #fff6e5; --warn-line: #e3b341; --warn-ink: #6b4a00;
     --ok: #1f7a4d; --bad: #a33;
   }
   @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
       --bg: #14171a; --card: #1d2126; --ink: #e8eaed; --muted: #9aa3ad;
       --line: #2c3238; --accent: #6fa3d6; --accent-ink: #10141a;
       --warn-bg: #35290f; --warn-line: #7a5f1e; --warn-ink: #f0d79a;
       --ok: #6cc79a; --bad: #e08585;
     }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #14171a; --card: #1d2126; --ink: #e8eaed; --muted: #9aa3ad;
+    --line: #2c3238; --accent: #6fa3d6; --accent-ink: #10141a;
+    --warn-bg: #35290f; --warn-line: #7a5f1e; --warn-ink: #f0d79a;
+    --ok: #6cc79a; --bad: #e08585;
   }
   * { box-sizing: border-box; }
   body {
@@ -73,6 +95,7 @@
     font-size: inherit; text-decoration: underline;
   }
   .modelbar { margin: 0 0 1rem; }
+  .theme-toggle { font-size: .85rem; padding: .3rem .6rem; }
   .demobar {
     margin: 0 0 1rem; padding: .6rem .85rem; border-radius: 8px;
     border: 1px solid var(--warn-line); background: var(--warn-bg);
@@ -84,6 +107,8 @@
 <body>
 <header class="topbar">
   <span class="brand"><a href="/">Conversational 360°</a></span>
+  <button type="button" class="theme-toggle" id="theme-toggle"
+          onclick="toggleTheme()" aria-label="Switch colour theme">Theme</button>
   {% if role %}
     <span class="who">
       {% if role == 'hr_admin' %}<a href="/admin">Dashboard</a> ·
@@ -95,6 +120,36 @@
     </span>
   {% endif %}
 </header>
+<script>
+  // The button names the theme it switches TO, read from what is showing now —
+  // which is the system setting until the visitor has picked one.
+  function currentTheme() {
+    var picked = document.documentElement.dataset.theme;
+    if (picked) return picked;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  function labelThemeToggle() {
+    var next = currentTheme() === "dark" ? "light" : "dark";
+    var button = document.getElementById("theme-toggle");
+    button.textContent = next === "dark" ? "☾ Dark" : "☀ Light";
+    button.setAttribute("aria-label", "Switch to " + next + " theme");
+  }
+  function toggleTheme() {
+    var next = currentTheme() === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem("c360-theme", next); } catch (e) {}
+    labelThemeToggle();
+  }
+  labelThemeToggle();
+  // Keep the sticky chat header clear of this bar, whose height changes when it
+  // wraps on a narrow screen.
+  function measureTopbar() {
+    var bar = document.querySelector("header.topbar");
+    document.documentElement.style.setProperty("--topbar-h", bar.offsetHeight + "px");
+  }
+  measureTopbar();
+  window.addEventListener("resize", measureTopbar);
+</script>
 <main>
 {% if role and not llm.live %}
   {# The demo's value is the conversation the model conducts, so there is no
