@@ -19,22 +19,8 @@
   }
   .assign button { font-size: .8rem; padding: .3rem .55rem; }
   td.owner { min-width: 13rem; }
-  .linkcell { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
-  .linkcell a { word-break: break-all; }
-  .copy { font-size: .78rem; padding: .2rem .5rem; }
-  tr.fresh td { background: var(--warn-bg); }
 </style>
-<script>
-  // Copies the full address, not the path shown: a link pasted into an email
-  // has to work for someone who has never seen this site.
-  function copyLink(button, url) {
-    navigator.clipboard.writeText(url).then(function () {
-      const label = button.textContent;
-      button.textContent = "Copied";
-      setTimeout(function () { button.textContent = label; }, 1500);
-    });
-  }
-</script>
+
 {% endblock %}
 {% block content %}
 <p class="sub"><a href="/admin">← Round {{ round_id }}</a></p>
@@ -113,7 +99,7 @@
     <tbody>
       {% for r in rows %}
       <tr{% if r.ballot_id in minted %} class="fresh"{% endif %}>
-        <td>{{ r.display_name }}</td>
+        <td><a href="/admin/person/{{ r.subject_id }}">{{ r.display_name }}</a></td>
         <td class="owner">
           {% if not r.invited %}
             {# Never minted, so there is no invite entry to attach an address to.

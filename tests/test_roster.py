@@ -3,7 +3,7 @@ loudly and specifically rather than producing a silently wrong round."""
 
 import pytest
 
-from poc import roster
+from poc import config, roster
 
 
 def write(tmp_path, text):
@@ -30,9 +30,59 @@ def test_the_shipped_roster_loads(tmp_path):
     assert {"S1", "S2", "S3", "S4", "S5", "S6"} <= set(by_id)
 
     assert by_id["S1"].display_name == "Ana Torres"
-    assert by_id["S1"].role == "Talent Partner"
-    assert by_id["S1"].cohort == "talent"
+    assert by_id["S1"].role == "Talent Partner Lead"
+    assert by_id["S1"].cohort == "Talent"
     assert all(s.display_name and s.cohort for s in subjects)
+
+
+def test_the_shipped_organisation_is_one_tree():
+    """The synthetic org is what HR browses and mints from, so it must hold
+    together: one person at the top, every manager on the list, no loops, and
+    everyone reachable from the top.
+
+    A broken line does not fail the load — `load_subjects` drops it rather than
+    lose the redaction list — so this is where a bad edit to the shipped file is
+    caught.
+    """
+    import csv
+
+    with config.SUBJECTS_PATH.open(encoding="utf-8", newline="") as fh:
+        raw = {r["subject_id"]: (r.get("manager_id") or "").strip() for r in csv.DictReader(fh)}
+    assert all(m in raw for m in raw.values() if m), "a manager_id names nobody on the list"
+
+    tops = [sid for sid, manager in raw.items() if not manager]
+    assert len(tops) == 1, f"expected one person at the top, got {tops}"
+
+    for sid in raw:
+        seen, current = set(), sid
+        while raw[current]:
+            assert current not in seen, f"reporting loop through {sid}"
+            seen.add(current)
+            current = raw[current]
+        assert current == tops[0], f"{sid} does not report up to the top"
+
+
+def test_every_shipped_role_is_a_job_title():
+    """Departments belong in `cohort`; a role column reading "Accounting" was the
+    sign it had been used for both."""
+    for subject in roster.load_subjects():
+        assert subject.role, f"{subject.subject_id} has no role"
+        assert subject.role.casefold() != subject.cohort.casefold(), subject.subject_id
+
+
+def test_roster_job_titles_are_masked_when_a_reviewer_claims_one(tmp_path):
+    """The fixed rules knew only talent titles; any title on the roster now counts."""
+    from poc.graph.redaction import Redactor
+
+    path = write(tmp_path, "subject_id,display_name,role,cohort\n"
+                           "S1,Ana Torres,Senior Business Process Analyst,Operations\n")
+    masker = Redactor(*roster.redaction_names(path), roles=roster.redaction_roles(path))
+    for text in ("As the only business process analyst I saw every handover.",
+                 "As a senior business process analyst, I review their work."):
+        result = masker.apply(text)
+        assert "ROLE" in result.codes or "SELF_ID" in result.codes, text
+        assert "analyst" not in result.text.lower(), text
+    assert masker.apply("They improved the business process.").clean
 
 
 def test_a_missing_file_names_the_columns_it_wants(tmp_path):

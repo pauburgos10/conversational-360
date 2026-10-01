@@ -1,11 +1,12 @@
-subject_id,display_name,role,cohort
-S1,Ana Torres,Talent Partner,talent
-S2,Marcos Vidal,Sourcer,talent
-S3,Lucia Ferrer,Talent Partner,talent
-S4,Diego Salas,Business Process,operations
-S5,Nadia Okonkwo,Legal & Immigration,operations
-S6,Priya Raman,Comms,operations
-S7,Paula Test,Developer,operations
-S8,Juli Test,Data,operations
-S9,Sofia Marin,Talent,talent
-S10,Pedro Pascal,Accounting,operations
+subject_id,display_name,role,cohort,manager_id,email
+S1,Ana Torres,Talent Partner Lead,Talent,S8,ana.torres@pluralit.example
+S2,Marcos Vidal,Sourcer,Talent,S1,marcos.vidal@pluralit.example
+S3,Lucia Ferrer,Talent Partner,Talent,S1,lucia.ferrer@pluralit.example
+S4,Diego Salas,Business Process Analyst,Operations,S9,diego.salas@pluralit.example
+S5,Nadia Okonkwo,Legal & Immigration Specialist,Operations,S9,nadia.okonkwo@pluralit.example
+S6,Priya Raman,Communications Specialist,Operations,S9,priya.raman@pluralit.example
+S7,Elena Ruiz,Chief Executive Officer,Leadership,,elena.ruiz@pluralit.example
+S8,Tomas Blanco,Head of Talent,Talent,S7,tomas.blanco@pluralit.example
+S9,Sofia Marin,Head of Operations,Operations,S7,sofia.marin@pluralit.example
+S10,Julian Ortega,Talent Partner,Talent,S8,
+S11,Martin Keller,Finance & Admin Lead,Operations,S9,martin.keller@pluralit.example

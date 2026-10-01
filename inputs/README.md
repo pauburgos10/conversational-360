@@ -26,17 +26,25 @@ attributable to a person. Reviewers are masked in the subject's copy only —
 HR sees them by name. See the repo README, "Who sees what".
 
 ```csv
-subject_id,display_name,role,cohort
-S1,Ana Torres,Talent Partner,talent
-S4,Diego Salas,Business Process,operations
+subject_id,display_name,role,cohort,manager_id,email
+S7,Elena Ruiz,Chief Executive Officer,Leadership,,elena.ruiz@pluralit.example
+S9,Sofia Marin,Head of Operations,Operations,S7,sofia.marin@pluralit.example
+S4,Diego Salas,Business Process Analyst,Operations,S9,
 ```
 
 | Column | Notes |
 |---|---|
 | `subject_id` | Any stable string. Becomes the report filename and the ballot's only link to a person. Must be unique. |
 | `display_name` | Shown in report headers. Also auto-added to the redaction list, so a name here can never be missed. |
-| `role` | Free text. The client's list: Talent Partner, Sourcer, Legal & Immigration, Business Process, Comms, Admin & Finance Support. |
-| `cohort` | The grouping for team reports. Blank becomes `unassigned`. |
+| `role` | The **job title** — not the department. Also feeds redaction: a reviewer writing "as the only business process analyst…" is masked in the subject's copy, for every title on this list. |
+| `cohort` | The **department**, shown as such in the app and used for department reports. Blank becomes `unassigned`. The column keeps its old name so existing files load. |
+| `manager_id` | Optional. The `subject_id` of who this person reports to; empty at the top of the organisation. People who share a manager are peers. The dashboard lists everyone in this reporting-line order. A manager not on the list is ignored on load rather than failing it — a failed load would empty the redaction list. |
+| `email` | Optional. Pre-fills the address when this person is suggested as someone's reviewer on the person page. Only a suggestion: HR can change it, and links can go to any address, including people outside the organisation. The shipped addresses use the reserved `.example` domain, so none can reach a real mailbox. **Never commit real addresses here** — this file is in git. |
+
+The shipped file is a synthetic organisation shaped like a real one: a CEO, a
+Talent and an Operations department with their heads, and a team under Ana
+Torres. `tests/test_roster.py` checks it stays one tree — one person at the top,
+every manager on the list, no loops.
 
 **Cohort sizing is the decision that matters most.** Aggregation suppresses any
 figure built from fewer than `min_n` **rater** responses, and the self-assessment

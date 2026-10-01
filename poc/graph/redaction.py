@@ -110,6 +110,32 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (CODE_NAME, re.compile(r"\b(?:Mr|Mrs|Ms|Dr|Sr|Sra)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?")),
 ]
 
+# A reviewer naming their own job title: "as a business process analyst, I…".
+# The fixed `_ROLE_PATTERNS` only know the talent titles the POC started with, so
+# the organisation's real titles come from the roster (`roster.redaction_roles`)
+# and are compiled into one rule per Redactor. Seniority words are stripped as
+# well, because a "Senior Talent Partner" writes "as a talent partner".
+_ROLE_LEAD = r"\b(?:as|i\s+am|i'm|being)\s+(?:a|an|the|their|his|her|our|your)\s+"
+_SENIORITY = re.compile(r"^(?:senior|junior|lead|principal|associate|chief)\s+", re.I)
+_MIN_ROLE_LEN = 4
+
+
+def _role_rule(roles: set[str] | None) -> re.Pattern[str] | None:
+    titles: set[str] = set()
+    for role in roles or ():
+        title = " ".join(role.lower().split())
+        for variant in (title, _SENIORITY.sub("", title)):
+            if len(variant) >= _MIN_ROLE_LEN:
+                titles.add(variant)
+    if not titles:
+        return None
+    # Longest first, so "talent partner lead" wins over "talent partner".
+    alternatives = "|".join(
+        re.escape(t).replace(r"\ ", r"\s+") for t in sorted(titles, key=len, reverse=True)
+    )
+    return re.compile(rf"{_ROLE_LEAD}(?:{alternatives})\b", re.I)
+
+
 # Two adjacent capitalised words, evaluated against the allowlist before firing.
 _FULL_NAME = re.compile(r"\b([A-Z][a-z]{1,15})\s+([A-Z][a-z]{1,15})\b")
 
@@ -179,9 +205,11 @@ class Redactor:
     """
 
     def __init__(self, gazetteer: set[str] | None = None,
-                 derived: set[str] | None = None) -> None:
+                 derived: set[str] | None = None,
+                 roles: set[str] | None = None) -> None:
         self.gazetteer = {g.strip() for g in (gazetteer or set()) if g.strip()}
         self.derived = {d.strip() for d in (derived or set()) if d.strip()} - self.gazetteer
+        self.role_rule = _role_rule(roles)
 
     @classmethod
     def from_file(cls, path: Path | str | None) -> "Redactor":
@@ -207,6 +235,12 @@ class Redactor:
                 findings.append(Finding(_code, len(m.group(0))))
                 return f"[{_code}]"
             out = pattern.sub(_sub, out)
+
+        if self.role_rule is not None:
+            def _sub_role(m: re.Match[str]) -> str:
+                findings.append(Finding(CODE_ROLE, len(m.group(0))))
+                return f"[{CODE_ROLE}]"
+            out = self.role_rule.sub(_sub_role, out)
 
         def _sub_name(m: re.Match[str]) -> str:
             findings.append(Finding(CODE_NAME, len(m.group(0))))

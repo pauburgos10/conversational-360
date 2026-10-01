@@ -96,6 +96,11 @@
   }
   .modelbar { margin: 0 0 1rem; }
   .theme-toggle { font-size: .85rem; padding: .3rem .6rem; }
+  /* Ballot and self-assessment links, shared by Ballot links and the person page. */
+  .linkcell { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
+  .linkcell a { word-break: break-all; }
+  .copy { font-size: .78rem; padding: .2rem .5rem; }
+  tr.fresh td, .fresh { background: var(--warn-bg); }
   .demobar {
     margin: 0 0 1rem; padding: .6rem .85rem; border-radius: 8px;
     border: 1px solid var(--warn-line); background: var(--warn-bg);
@@ -133,6 +138,15 @@
     var button = document.getElementById("theme-toggle");
     button.textContent = next === "dark" ? "☾ Dark" : "☀ Light";
     button.setAttribute("aria-label", "Switch to " + next + " theme");
+  }
+  // Copies the full address, not the path shown: a link pasted into an email
+  // has to work for someone who has never seen this site.
+  function copyLink(button, url) {
+    navigator.clipboard.writeText(url).then(function () {
+      var label = button.textContent;
+      button.textContent = "Copied";
+      setTimeout(function () { button.textContent = label; }, 1500);
+    });
   }
   function toggleTheme() {
     var next = currentTheme() === "dark" ? "light" : "dark";

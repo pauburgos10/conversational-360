@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}{{ person.display_name }}{% endblock %}
+{% block head %}
+<style>
+  .facts { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .9rem; margin: 0; }
+  .facts dt { color: var(--muted); font-size: .88rem; }
+  .facts dd { margin: 0; }
+  .who-row { display: flex; gap: .75rem; align-items: flex-start; flex-wrap: wrap;
+             padding: .7rem 0; border-top: 1px solid var(--line); }
+  .who-row:first-of-type { border-top: 0; }
+  .who-name { flex: 1 1 12rem; }
+  .who-name .muted { font-size: .85rem; }
+  .relation { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; }
+  .mintrow { display: flex; gap: .4rem; align-items: center; flex: 1 1 18rem; margin: 0; }
+  .mintrow input {
+    flex: 1; min-width: 10rem; font: inherit; font-size: .9rem; padding: .35rem .5rem;
+    border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+  }
+  .sentlist { flex: 1 1 18rem; font-size: .88rem; }
+</style>
+{% endblock %}
+{% block content %}
+<p class="sub"><a href="/admin">← Round {{ round_id }}</a></p>
+<h1>{{ person.display_name }}</h1>
+<dl class="facts">
+  <dt>Role</dt><dd>{{ person.role or "—" }}</dd>
+  <dt>Department</dt><dd>{{ person.cohort }}</dd>
+  <dt>Reports to</dt>
+  <dd>{% if manager_name %}<a href="/admin/person/{{ person.manager_id }}">{{ manager_name }}</a>{% else %}— top of the organisation{% endif %}</dd>
+  <dt>Email</dt><dd>{{ person.email or "—" }}</dd>
+</dl>
+
+{% if error %}
+  <div class="notice"><strong>Could not do that.</strong> {{ error }}</div>
+{% endif %}
+{% if minted %}
+  <div class="notice" style="border-color: var(--ok); background: var(--card); color: var(--ink)">
+    Link minted — highlighted below, ready to copy and send.
+  </div>
+{% endif %}
+
+<div class="card" style="margin-top:1rem">
+  <h2 style="margin-top:0">Suggested reviewers</h2>
+  <p class="muted" style="font-size:.9em; margin-top:0">
+    From the reporting lines: their manager, the people who report to them, and
+    the people who share their manager. Mint a link for each reviewer you choose
+    and send it to them yourself. The address is pre-filled where we have one;
+    change or clear it as you need. Reports never show which of these
+    relationships a review came from.
+  </p>
+  {% for s in suggestions %}
+    <div class="who-row">
+      <div class="who-name">
+        <div class="relation muted">{{ s.relation }}</div>
+        <a href="/admin/person/{{ s.subject_id }}"><strong>{{ s.display_name }}</strong></a>
+        <div class="muted">{{ s.role }}</div>
+      </div>
+      {% if s.links %}
+        <div class="sentlist">
+          {% for l in s.links %}
+            <div>Link sent to {{ l.email }} ·
+              {% if l.status in ('submitted', 'frozen') %}<span class="pill ok">{{ l.status }}</span>
+              {% elif l.status == 'in progress' %}<span class="pill">in progress{% if l.progress %} · {{ l.progress }}{% endif %}</span>
+              {% else %}<span class="pill">{{ l.status }}</span>{% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <form class="mintrow" method="post" action="/admin/invites">
+          <input type="hidden" name="round_id" value="{{ round_id }}">
+          <input type="hidden" name="subject_id" value="{{ person.subject_id }}">
+          <input type="hidden" name="n" value="1">
+          <input type="hidden" name="back" value="/admin/person/{{ person.subject_id }}">
+          <input type="email" name="email" value="{{ s.email }}" placeholder="address (optional)"
+                 autocomplete="off" maxlength="254"
+                 aria-label="Address to send {{ s.display_name }}'s link to">
+          <button class="primary" type="submit">Mint link</button>
+        </form>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="muted">Nobody on the list works directly with {{ person.display_name }} yet.
+      Set reporting lines when adding people, or mint a link below for anyone else.</p>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Someone else</h2>
+  <p class="muted" style="font-size:.9em; margin-top:0">
+    Any reviewer, inside or outside the organisation — a client, a partner, a
+    colleague from another team.
+  </p>
+  <form class="mintrow" method="post" action="/admin/invites">
+    <input type="hidden" name="round_id" value="{{ round_id }}">
+    <input type="hidden" name="subject_id" value="{{ person.subject_id }}">
+    <input type="hidden" name="n" value="1">
+    <input type="hidden" name="back" value="/admin/person/{{ person.subject_id }}">
+    <input type="email" name="email" placeholder="reviewer@example.com (optional)"
+           autocomplete="off" maxlength="254" aria-label="Address to send the link to">
+    <button class="primary" type="submit">Mint link</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Links for reviewing {{ person.display_name }}</h2>
+  {% if links %}
+    <div class="scroll"><table>
+      <thead><tr><th>Sent to</th><th>Link</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for l in links %}
+        <tr{% if l.ballot_id in minted %} class="fresh"{% endif %}>
+          <td>{{ l.email or "—" }}</td>
+          <td>
+            {% set url = request.base_url|string ~ l.link[1:] %}
+            <div class="linkcell">
+              <a class="mono" href="{{ l.link }}">{{ l.link }}</a>
+              <button type="button" class="copy" onclick="copyLink(this, '{{ url }}')">Copy link</button>
+            </div>
+          </td>
+          <td>
+            {% if l.status in ('submitted', 'frozen') %}<span class="pill ok">{{ l.status }}</span>
+            {% elif l.status == 'in progress' %}<span class="pill">in progress{% if l.progress %} · {{ l.progress }}{% endif %}</span>
+            {% else %}<span class="pill">{{ l.status }}</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+  {% else %}
+    <p class="muted" style="margin-bottom:0">No links minted for {{ person.display_name }} yet.</p>
+  {% endif %}
+</div>
+
+<div class="card" id="self">
+  <h2 style="margin-top:0">Self-assessment</h2>
+  {% if self_token %}
+    {% set url = request.base_url|string ~ 'self/' ~ self_token %}
+    <div class="linkcell">
+      <a class="mono" href="/self/{{ self_token }}">/self/{{ self_token }}</a>
+      <button type="button" class="copy" onclick="copyLink(this, '{{ url }}')">Copy link</button>
+      {% if self.complete %}<span class="pill ok">complete</span>
+      {% elif self.started %}<span class="pill">in progress · {{ self.progress }}</span>
+      {% else %}<span class="pill">not started</span>{% endif %}
+    </div>
+    <p class="muted" style="font-size:.85em; margin-bottom:0">
+      Send this to {{ person.display_name }}{% if person.email %} ({{ person.email }}){% endif %}.
+    </p>
+  {% else %}
+    <form method="post" action="/admin/self-links" class="inline">
+      <input type="hidden" name="round_id" value="{{ round_id }}">
+      <input type="hidden" name="subject_id" value="{{ person.subject_id }}">
+      <input type="hidden" name="back" value="/admin/person/{{ person.subject_id }}">
+      <button type="submit">Mint self-assessment for {{ person.display_name }}</button>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

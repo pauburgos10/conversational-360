@@ -27,7 +27,7 @@ from .state import (
 )
 
 # Merged so a roster entry missing from the gazetteer cannot leak a name.
-_redactor = Redactor(*roster.redaction_names())
+_redactor = Redactor(*roster.redaction_names(), roles=roster.redaction_roles())
 
 
 def refresh_redactor() -> Redactor:
@@ -45,7 +45,7 @@ def refresh_redactor() -> Redactor:
     working. `collect` reads the global at call time, so the rebind reaches it.
     """
     global _redactor
-    _redactor = Redactor(*roster.redaction_names())
+    _redactor = Redactor(*roster.redaction_names(), roles=roster.redaction_roles())
     return _redactor
 
 

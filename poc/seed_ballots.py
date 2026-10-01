@@ -57,11 +57,20 @@ TRAITS = {
     "S4": [2, 7, 10, 13],         # reminders, bottleneck, narrow, blunt under pressure
     "S5": [4, 6, 8, 9, 14],       # ownership, documents, automates, strategic, steadying
     "S6": [1, 12],
+    # The leadership and the rest of the teams. Their profiles are ordinary on
+    # purpose — the suppression rules are demonstrated on S2–S6 — but explicit,
+    # so nobody falls back to a default and reads as filler.
+    "S7": [4, 9, 12, 14],         # CEO: owns outcomes, business-aware, helps, steadying
+    "S8": [0, 6, 9, 12],          # Head of Talent: reliable, documents, strategic
+    "S9": [4, 8, 9, 11],          # Head of Operations: ownership, automates, customer-led
+    "S10": [1, 3, 11],
+    "S11": [2, 7, 8],             # Finance: reminders, close bottleneck, automates
 }
 
 # How each subject rates themselves relative to how raters see them. This is the
 # whole point of the comparison: S4 has a blind spot, S5 undersells, S1 is close.
-SELF_SKEW = {"S1": +0.1, "S2": -0.2, "S3": +0.3, "S4": +0.8, "S5": -0.5, "S6": 0.0}
+SELF_SKEW = {"S1": +0.1, "S2": -0.2, "S3": +0.3, "S4": +0.8, "S5": -0.5, "S6": 0.0,
+             "S7": +0.2, "S8": -0.1, "S9": 0.0, "S10": +0.4, "S11": -0.3}
 
 # subject -> (n_ballots, centre of the score distribution)
 PROFILE = {
@@ -71,6 +80,11 @@ PROFILE = {
     "S4": (4, 1.8),   # one complete rater + three partial -> dominance
     "S5": (4, 2.6),
     "S6": (1, 2.0),   # below min_n on every cell
+    "S7": (5, 2.6),
+    "S8": (5, 2.3),
+    "S9": (4, 2.5),
+    "S10": (3, 2.1),
+    "S11": (4, 2.2),
 }
 
 TEXTS = [

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from poc import banks, policy, reporting, store, trace
@@ -203,21 +203,58 @@ def invite_list(request: Request, round_id: str = DEFAULT_ROUND,
     )
 
 
+def _back(target: str, fallback: str) -> str:
+    """Where a form returns to: the admin page it was posted from, or `fallback`.
+
+    Only admin paths, so a crafted value cannot bounce HR to another site or to
+    a page outside the one they were working on.
+    """
+    return target if target.startswith("/admin") and not target.startswith("//") else fallback
+
+
 @router.post("/invites")
 def mint(subject_id: str = Form(...), n: int = Form(2), round_id: str = Form(DEFAULT_ROUND),
-         email: str = Form("")):
+         email: str = Form(""), back: str = Form("")):
+    target = _back(back, "/admin/invites")
     try:
         ids = rounds.mint_invites(subject_id, n, round_id, email=email)
     except ValueError as exc:
-        return RedirectResponse(f"/admin/invites?error={quote(str(exc))}", status_code=303)
-    return RedirectResponse(f"/admin/invites?minted={quote(','.join(ids))}", status_code=303)
+        return RedirectResponse(f"{target}?error={quote(str(exc))}", status_code=303)
+    return RedirectResponse(f"{target}?minted={quote(','.join(ids))}", status_code=303)
 
 
 @router.post("/self-links")
-def mint_self(subject_id: str = Form(...), round_id: str = Form(DEFAULT_ROUND)):
+def mint_self(subject_id: str = Form(...), round_id: str = Form(DEFAULT_ROUND),
+              back: str = Form("")):
     """Mint (or re-show) a subject's self-assessment link, to send to them."""
     rounds.mint_self_link(subject_id, round_id)
-    return RedirectResponse(f"/admin/invites#self-{quote(subject_id)}", status_code=303)
+    target = _back(back, "/admin/invites")
+    anchor = "#self" if target != "/admin/invites" else f"#self-{quote(subject_id)}"
+    return RedirectResponse(f"{target}{anchor}", status_code=303)
+
+
+@router.get("/person/{subject_id}", response_class=HTMLResponse)
+def person(request: Request, subject_id: str, round_id: str = DEFAULT_ROUND,
+           minted: str | None = None, error: str | None = None):
+    """One person: who works around them, and every link that concerns them.
+
+    Where HR goes from the org chart to sending links. The suggested reviewers
+    come from the reporting lines; minting one pre-fills the address the roster
+    holds for them, which HR can change or clear before sending.
+    """
+    view = rounds.person_view(subject_id, round_id)
+    if view is None:
+        raise HTTPException(status_code=404, detail="Nobody with that id is on the list.")
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "person.html",
+        {
+            **view,
+            "round_id": round_id,
+            "minted": set((minted or "").split(",")) - {""},
+            "error": error,
+        },
+    )
 
 
 @router.post("/invites/assign")

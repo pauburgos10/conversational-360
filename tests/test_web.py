@@ -433,7 +433,7 @@ def test_hr_can_add_a_subject_and_it_appears_in_the_round(client):
 
     # the roster CSV is the record
     rows = config.SUBJECTS_PATH.read_text(encoding="utf-8").strip().splitlines()
-    assert rows[-1] == f"{subject_id},Sofia Marin,Analyst,operations,"  # no manager
+    assert rows[-1] == f"{subject_id},Sofia Marin,Analyst,operations,,"  # no manager, no email
 
     # and the store, or reports would render an empty round
     with store.connect() as conn:
@@ -1452,15 +1452,15 @@ def test_the_manager_must_already_be_on_the_list(client):
 def test_a_roster_from_before_reporting_lines_gains_the_column_intact(client):
     """The live roster on a deployment's disk has the old four-column header.
 
-    Appending a five-column row to it would leave the new column unnamed; the
-    file is rewritten with the full header and every existing row kept as is.
+    Appending a longer row to it would leave the new columns unnamed; the file is
+    rewritten with the full header and every existing row kept as is.
     """
     as_hr(client)
     client.post("/admin/subjects", data={"display_name": "Nora Field", "manager_id": "S2"})
     text = config.SUBJECTS_PATH.read_text(encoding="utf-8")
-    assert text.splitlines()[0] == "subject_id,display_name,role,cohort,manager_id"
-    assert "S1,Subject One,Team Lead,talent," in text
-    assert text.rstrip().endswith(",S2")
+    assert text.splitlines()[0] == "subject_id,display_name,role,cohort,manager_id,email"
+    assert "S1,Subject One,Team Lead,talent,," in text
+    assert text.rstrip().endswith(",S2,")
 
 
 def test_a_bad_manager_in_the_file_is_dropped_not_fatal(tmp_path):
@@ -1533,3 +1533,118 @@ def test_every_page_offers_the_theme_toggle(client):
     assert 'id="theme-toggle"' in client.get("/").text
     with TestClient(app) as anon:
         assert 'id="theme-toggle"' in anon.get("/login").text
+
+
+def test_the_dashboard_lists_people_in_reporting_line_order(client):
+    """Each manager is followed by their own team, indented one level deeper."""
+    as_hr(client)
+    client.post("/admin/subjects", data={"display_name": "Nora Field", "manager_id": "S1"})
+    client.post("/admin/subjects", data={"display_name": "Omar Haddad", "manager_id": "S2"})
+    order = [(r["display_name"], r["depth"]) for r in rounds.subject_state()]
+    assert order == [("Subject One", 0), ("Nora Field", 1),
+                     ("Subject Two", 0), ("Omar Haddad", 1)]
+
+
+def test_a_reporting_loop_in_the_file_still_lists_everyone_once(client):
+    """A hand-edited loop must not hang the dashboard or drop anyone from it."""
+    config.SUBJECTS_PATH.write_text("subject_id,display_name,role,cohort,manager_id\n"
+                                    "S1,Subject One,Lead,talent,S2\n"
+                                    "S2,Subject Two,Lead,talent,S1\n", encoding="utf-8")
+    roster.load_subjects.cache_clear()
+    names = [r["display_name"] for r in rounds.subject_state()]
+    assert sorted(names) == ["Subject One", "Subject Two"]
+
+
+# ---------------------------------------------------------------------------
+# the person page: minting from the org chart
+# ---------------------------------------------------------------------------
+
+def _small_org(client):
+    """S1 manages Nora and Omar; Nora manages Pia. Everyone but Omar has an email."""
+    as_hr(client)
+    for name, manager, email in (("Nora Field", "S1", "nora@example.com"),
+                                 ("Omar Haddad", "S1", ""),
+                                 ("Pia Lund", None, "pia@example.com")):
+        if name == "Pia Lund":
+            manager = next(s.subject_id for s in roster.load_subjects()
+                           if s.display_name == "Nora Field")
+        client.post("/admin/subjects", data={"display_name": name, "manager_id": manager,
+                                             "email": email})
+    return {s.display_name: s.subject_id for s in roster.load_subjects()}
+
+
+def test_the_person_page_suggests_manager_reports_and_peers(client):
+    ids = _small_org(client)
+    page = " ".join(client.get(f"/admin/person/{ids['Nora Field']}").text.split())
+    suggested = page.split("Suggested reviewers")[1].split("Someone else")[0]
+
+    assert "Manager" in suggested and "Subject One" in suggested
+    assert "Direct report" in suggested and "Pia Lund" in suggested
+    assert "Peer" in suggested and "Omar Haddad" in suggested
+    assert "Nora Field</strong>" not in suggested, "nobody reviews themselves"
+    assert 'value="pia@example.com"' in suggested, "the roster address is pre-filled"
+
+
+def test_minting_from_a_suggestion_assigns_the_address_and_returns_to_the_person(client):
+    ids = _small_org(client)
+    nora = ids["Nora Field"]
+    r = client.post("/admin/invites", data={"subject_id": nora, "n": 1,
+                                            "email": "pia@example.com",
+                                            "back": f"/admin/person/{nora}"},
+                    follow_redirects=False)
+    assert r.headers["location"].startswith(f"/admin/person/{nora}?minted=")
+
+    [invite] = rounds.invites_for()[nora]
+    assert invite.email == "pia@example.com"
+    page = " ".join(client.get(r.headers["location"]).text.split())
+    assert "Link sent to pia@example.com" in page, "the suggestion shows it went out"
+    assert 'class="fresh"' in page and f"/b/{invite.ballot_id}" in page
+
+
+def test_a_link_can_go_to_someone_outside_the_organisation(client):
+    ids = _small_org(client)
+    nora = ids["Nora Field"]
+    client.post("/admin/invites", data={"subject_id": nora, "n": 1,
+                                        "email": "client@customer.example",
+                                        "back": f"/admin/person/{nora}"})
+    assert rounds.invites_for()[nora][0].email == "client@customer.example"
+
+
+def test_the_relationship_is_never_stored_with_the_link(client):
+    """Suggesting by relationship must not become reporting by relationship."""
+    ids = _small_org(client)
+    nora = ids["Nora Field"]
+    client.post("/admin/invites", data={"subject_id": nora, "n": 1,
+                                        "email": "pia@example.com",
+                                        "back": f"/admin/person/{nora}"})
+    stored = rounds.INVITES_PATH.read_text(encoding="utf-8").lower()
+    for word in ("manager", "peer", "report", "relation"):
+        assert word not in stored, word
+
+
+def test_back_only_returns_to_admin_pages(client):
+    as_hr(client)
+    r = client.post("/admin/invites", data={"subject_id": "S1", "n": 1,
+                                            "back": "//evil.example/x"},
+                    follow_redirects=False)
+    assert r.headers["location"].startswith("/admin/invites?")
+
+
+def test_the_self_assessment_can_be_minted_from_the_person_page(client):
+    as_hr(client)
+    client.post("/admin/self-links", data={"subject_id": "S2", "back": "/admin/person/S2"})
+    token = rounds.self_links()["S2"]
+    assert f"/self/{token}" in client.get("/admin/person/S2").text
+
+
+def test_an_unknown_person_is_a_404_and_a_rater_cannot_open_the_page(client):
+    assert client.get("/admin/person/S1").status_code == 403
+    as_hr(client)
+    assert client.get("/admin/person/S99").status_code == 404
+
+
+def test_a_malformed_roster_email_is_refused(client):
+    as_hr(client)
+    r = client.post("/admin/subjects", data={"display_name": "Nora Field", "email": "nope"})
+    assert "does not look like an email" in r.text
+    assert all(s.display_name != "Nora Field" for s in roster.load_subjects())

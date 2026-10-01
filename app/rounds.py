@@ -133,7 +133,47 @@ def subject_state(round_id: str = DEFAULT_ROUND) -> list[dict]:
             # as "done" — `self.status` is the field with that answer.
             "has_self": self_state["started"],
         })
-    return rows
+    return _org_order(rows, listed)
+
+
+def _natural_id(subject_id: str) -> tuple:
+    """S2 before S10: the ids are numbered, and text order reads as shuffled."""
+    match = re.fullmatch(r"([A-Za-z]*)(\d+)", subject_id)
+    return (match.group(1), int(match.group(2))) if match else (subject_id, 0)
+
+
+def _org_order(rows: list[dict], listed: dict) -> list[dict]:
+    """Rows in reporting-line order: the top first, then each manager followed by
+    their team, so the list reads like the org chart it is drawn from.
+
+    People with no line to anyone (a roster from before `manager_id`, or someone
+    whose manager has left) follow in id order, so nobody drops off the list.
+    """
+    by_id = {r["subject_id"]: r for r in rows}
+    reports: dict[str, list[str]] = {}
+    for sid in by_id:
+        manager = listed[sid].manager_id if sid in listed else ""
+        if manager in by_id:
+            reports.setdefault(manager, []).append(sid)
+
+    ordered: list[dict] = []
+    seen: set[str] = set()
+
+    def visit(sid: str, depth: int) -> None:
+        if sid in seen:
+            return           # a loop in a hand-edited file must not recurse forever
+        seen.add(sid)
+        ordered.append({**by_id[sid], "depth": depth})
+        for child in sorted(reports.get(sid, []), key=_natural_id):
+            visit(child, depth + 1)
+
+    tops = [sid for sid in by_id
+            if not (sid in listed and listed[sid].manager_id in by_id)]
+    for sid in sorted(tops, key=_natural_id):
+        visit(sid, 0)
+    for sid in sorted(by_id, key=_natural_id):   # anything only reachable via a loop
+        visit(sid, 0)
+    return ordered
 
 
 def round_freeze_info(round_id: str = DEFAULT_ROUND) -> dict | None:
@@ -443,7 +483,9 @@ def invite_rows(round_id: str = DEFAULT_ROUND) -> list[dict]:
     states = ballot_states(round_id)
 
     rows = []
-    for subject_id in sorted(subjects):
+    # In org-chart order, as `subject_state` returns them, so the links read in
+    # the same order as the dashboard.
+    for subject_id in subjects:
         for invite in minted.get(subject_id, ()):
             state = states.get(invite.ballot_id)
             rows.append({
@@ -646,3 +688,74 @@ def backfill_self_links(round_id: str = DEFAULT_ROUND) -> list[str]:
     for subject_id in missing:
         mint_self_link(subject_id, round_id)
     return missing
+
+
+# ---------------------------------------------------------------------------
+# one person, and who might review them
+# ---------------------------------------------------------------------------
+#
+# The person page is where HR acts on the org chart: pick someone, see who works
+# around them, and mint each reviewer's link from there.
+#
+# The relationship is used to *suggest* reviewers and goes no further. It is not
+# written to the invite, which stores the address the link was sent to and
+# nothing else — so no report can be broken down by manager, peer or direct
+# report, which is the part of the anonymity requirement this design keeps.
+
+RELATION_MANAGER = "Manager"
+RELATION_REPORT = "Direct report"
+RELATION_PEER = "Peer"
+
+
+def person_view(subject_id: str, round_id: str = DEFAULT_ROUND) -> dict | None:
+    """Everything the person page shows, or None if they are not on the roster."""
+    try:
+        people = {p.subject_id: p for p in roster.load_subjects()}
+    except (FileNotFoundError, ValueError):
+        people = {}
+    person = people.get(subject_id)
+    if person is None:
+        return None
+
+    states = ballot_states(round_id)
+    links = []
+    for invite in invites_for(round_id).get(subject_id, ()):
+        state = states.get(invite.ballot_id)
+        links.append({
+            "ballot_id": invite.ballot_id,
+            "link": f"/b/{invite.ballot_id}",
+            "email": invite.email,
+            "status": state.status if state else BALLOT_NOT_OPENED,
+            "progress": state.progress if state else "",
+        })
+
+    def suggestion(other, relation: str) -> dict:
+        # Matched on the address only: an invite records where it was sent, not
+        # why, so "already sent to this reviewer" is all that can be known.
+        sent = [link for link in links
+                if other.email and link["email"].casefold() == other.email.casefold()]
+        return {"subject_id": other.subject_id, "display_name": other.display_name,
+                "role": other.role, "email": other.email, "relation": relation,
+                "links": sent}
+
+    by_number = lambda p: _natural_id(p.subject_id)  # noqa: E731
+    suggestions = []
+    manager = people.get(person.manager_id)
+    if manager:
+        suggestions.append(suggestion(manager, RELATION_MANAGER))
+    for other in sorted(people.values(), key=by_number):
+        if other.manager_id == subject_id:
+            suggestions.append(suggestion(other, RELATION_REPORT))
+    for other in sorted(people.values(), key=by_number):
+        if (person.manager_id and other.manager_id == person.manager_id
+                and other.subject_id != subject_id):
+            suggestions.append(suggestion(other, RELATION_PEER))
+
+    return {
+        "person": person,
+        "manager_name": manager.display_name if manager else "",
+        "suggestions": suggestions,
+        "links": links,
+        "self_token": self_links(round_id).get(subject_id),
+        "self": self_status(subject_id, round_id),
+    }

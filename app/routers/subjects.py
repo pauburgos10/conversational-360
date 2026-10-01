@@ -37,7 +37,7 @@ def _known_subject_ids() -> set[str]:
 
 @router.post("/subjects")
 def create(request: Request, display_name: str = Form(...), role: str = Form(""),
-           cohort: str = Form(""), manager_id: str = Form(""),
+           cohort: str = Form(""), manager_id: str = Form(""), email: str = Form(""),
            round_id: str = Form(DEFAULT_ROUND)):
     try:
         subject = roster.add_subject(
@@ -45,6 +45,7 @@ def create(request: Request, display_name: str = Form(...), role: str = Form("")
             role=role,
             cohort=cohort,
             manager_id=manager_id,
+            email=email,
             reserved=_known_subject_ids(),
         )
     except ValueError as exc:

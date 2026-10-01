@@ -84,6 +84,11 @@
         {% endfor %}
       </select>
     </label>
+    <label>
+      <span>Email <em>(optional)</em></span>
+      <input type="email" name="email" maxlength="254" placeholder="name@company.com"
+             autocomplete="off">
+    </label>
     <button class="primary" type="submit">Add person</button>
   </form>
   <p class="muted" style="font-size:.85em; margin-bottom:0">
@@ -95,7 +100,7 @@
 <div class="card">
   <h2 style="margin-top:0">Completion</h2>
   <p class="muted" style="font-size:.9em; margin-top:0">
-    Where each subject's round stands. Rater responses are counted against
+    Where each subject's round stands — select a name to mint their links. Rater responses are counted against
     <code>min_n</code>; the self-assessment is tracked separately because it is never
     part of that count. Per-link detail, including who each link was assigned to,
     is on <a href="/admin/invites">Ballot links</a>.
@@ -107,8 +112,10 @@
     <tbody>
       {% for s in subjects %}
       <tr>
-        <td>
-          <strong>{{ s.display_name }}</strong>
+        {# Indented by reporting depth: the list is in org-chart order, and the
+           indent is what makes that visible at a glance. #}
+        <td style="padding-left: {{ 0.5 + 1.1 * (s.depth or 0) }}rem">
+          <a href="/admin/person/{{ s.subject_id }}"><strong>{{ s.display_name }}</strong></a>
           <div class="muted" style="font-size:.85em">
             {% if s.role %}{{ s.role }} · {% endif %}{{ s.cohort }}
             {% if s.manager_name %}<br>Reports to {{ s.manager_name }}{% endif %}

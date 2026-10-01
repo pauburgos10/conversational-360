@@ -57,7 +57,7 @@ def _masker() -> Redactor:
     path and a stale redactor here would mask a name it has never heard of —
     which is the one failure this whole module exists to prevent.
     """
-    return Redactor(*roster.redaction_names())
+    return Redactor(*roster.redaction_names(), roles=roster.redaction_roles())
 
 
 def _open_records(round_data: dict, ballot_ids: set[str],

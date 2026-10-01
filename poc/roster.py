@@ -16,7 +16,7 @@ from __future__ import annotations
 import csv
 import io
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 
@@ -24,9 +24,12 @@ from . import config
 from .graph.redaction import _derive
 
 REQUIRED_COLUMNS = ["subject_id", "display_name", "role", "cohort"]
+# A loose shape check, the same one the invite form applies: it catches the typo
+# that would leave a link unsendable, without pretending to verify the address.
+EMAIL_RE = re.compile(r"[^@\s,;]+@[^@\s,;]+\.[^@\s,;]{2,}")
 # Optional so a roster written before reporting lines existed still loads — the
 # live copy on a deployment's disk is one, and it is never overwritten.
-OPTIONAL_COLUMNS = ["manager_id"]
+OPTIONAL_COLUMNS = ["manager_id", "email"]
 COLUMNS = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
 
 
@@ -38,12 +41,17 @@ class Subject:
     old name so existing files load. `manager_id` is the `subject_id` of who they
     report to, empty at the top of the organisation; peers are the people who
     share it.
+
+    `email` is optional and only ever a suggestion: when this person is proposed
+    as someone's reviewer, HR's mint form starts from it. Links can still go to
+    any address, including people outside the organisation.
     """
     subject_id: str
     display_name: str
     role: str
     cohort: str
     manager_id: str = ""
+    email: str = ""
 
 
 @lru_cache(maxsize=1)
@@ -77,7 +85,8 @@ def load_subjects(path: Path | None = None) -> tuple[Subject, ...]:
         seen.add(sid)
         subjects.append(Subject(sid, name, (row["role"] or "").strip(),
                                 (row["cohort"] or "").strip() or "unassigned",
-                                (row.get("manager_id") or "").strip()))
+                                (row.get("manager_id") or "").strip(),
+                                (row.get("email") or "").strip()))
 
     # Lenient on purpose: a hand-edited file naming a manager who is not on the
     # roster loses that line rather than failing the load. A failed load is not
@@ -87,7 +96,7 @@ def load_subjects(path: Path | None = None) -> tuple[Subject, ...]:
     known = {s.subject_id for s in subjects}
     return tuple(
         s if s.manager_id in known and s.manager_id != s.subject_id
-        else Subject(s.subject_id, s.display_name, s.role, s.cohort)
+        else replace(s, manager_id="")
         for s in subjects
     )
 
@@ -127,6 +136,20 @@ def redaction_names(path: Path | None = None) -> tuple[set[str], set[str]]:
     return explicit, derived - explicit
 
 
+def redaction_roles(path: Path | None = None) -> set[str]:
+    """The organisation's job titles, for masking a reviewer who names their own.
+
+    "As the only business process analyst here…" identifies the writer as surely
+    as a name does. The titles come from the roster for the same reason the names
+    do: a list typed into the code covers the roles it was written for and no
+    others.
+    """
+    try:
+        return {s.role for s in load_subjects(path) if s.role}
+    except (FileNotFoundError, ValueError):
+        return set()  # redaction must still work before a roster exists
+
+
 def next_subject_id(subjects: tuple[Subject, ...] | None = None,
                     reserved: set[str] | None = None,
                     path: Path | None = None) -> str:
@@ -157,7 +180,8 @@ def next_subject_id(subjects: tuple[Subject, ...] | None = None,
 
 def add_subject(display_name: str, role: str = "", cohort: str = "",
                 subject_id: str | None = None, reserved: set[str] | None = None,
-                path: Path | None = None, manager_id: str = "") -> Subject:
+                path: Path | None = None, manager_id: str = "",
+                email: str = "") -> Subject:
     """Append a subject to the roster CSV and invalidate the cached read.
 
     The CSV is written rather than the database alone, because this file is the
@@ -175,6 +199,9 @@ def add_subject(display_name: str, role: str = "", cohort: str = "",
     role = (role or "").strip()
     cohort = (cohort or "").strip() or "unassigned"
     manager_id = (manager_id or "").strip()
+    email = (email or "").strip()
+    if email and not EMAIL_RE.fullmatch(email):
+        raise ValueError(f"{email!r} does not look like an email address.")
 
     if not display_name:
         raise ValueError("A display name is required — it titles every report about this person.")
@@ -201,10 +228,11 @@ def add_subject(display_name: str, role: str = "", cohort: str = "",
     # existed has a four-column header, and appending a five-column row to it
     # would leave the new column unnamed. Every existing row is carried over as
     # read, so nothing an earlier edit wrote is lost.
-    new = Subject(subject_id, display_name, role, cohort, manager_id)
+    new = Subject(subject_id, display_name, role, cohort, manager_id, email)
     rows = [*_raw_rows(path), {
         "subject_id": new.subject_id, "display_name": new.display_name,
         "role": new.role, "cohort": new.cohort, "manager_id": new.manager_id,
+        "email": new.email,
     }]
 
     # csv.DictWriter rather than an f-string: a display name containing a comma
