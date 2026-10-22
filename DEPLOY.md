@@ -1,7 +1,7 @@
 # Deploying the demo to Render
 
 **This repository is the working copy of the project**, and it is what Render
-deploys. The client's repository on `gitlab.kdsoft.io` receives a copy for
+deploys. The client's self-hosted GitLab repository receives a copy for
 delivery — see the last section. Render could not deploy from there in any case:
 it only integrates with GitHub, GitLab.com and Bitbucket.
 
@@ -149,8 +149,7 @@ ways to keep control:
 
 ## Delivering to the client repository
 
-The client's repo (`gitlab.kdsoft.io`, project under `paula/conversational-360/`)
-is updated **from** this one, periodically. It is currently behind: the
+The client's repo is updated **from** this one, periodically. It is currently behind: the
 probe-policy panel, the persistent roster, and `.dockerignore` exist only here.
 
 Copy with a tool that keeps hidden files. A Finder drag or `cp -R src/* .`
@@ -166,20 +165,15 @@ rsync -a --delete --dry-run --itemize-changes \
   ./ "$CLIENT/"                     # read the list, then run again without --dry-run
 ```
 
-Four things to settle in the client repo when you do this:
+Three things to settle in the client repo when you do this:
 
-1. **Its `.gitignore` is weaker than this one** and has already let generated
-   files through: commit `a7e3fce` (pushed to `origin/demo-paula`) contains
-   `data/invites.json`, `web-settings.json` and `data/reports/`. The rsync above
-   brings the stronger `.gitignore` across; the tracked files still need
+1. **Its `.gitignore` may be weaker than this one.** The rsync above brings the
+   stronger one across; any generated files already tracked there still need
    `git rm --cached` to stop being committed.
-2. **The client compensation document is in that repo's pushed history** (commit
-   `9b385ad`). Deleting it from the tree does not remove it from history — raise it
-   with whoever administers the repository before rewriting anything.
-3. **Deployment files do not fit its layout.** `DEPLOY.md` and `render.yaml`
+2. **Deployment files do not fit its layout.** `DEPLOY.md` and `render.yaml`
    describe this repo: root layout, GitHub, `main`. Decide whether they belong in
    the client repo at all, and if so, what they should say there.
-4. Check `git status` there before committing: no `.env`, no `data/` files, no
+3. Check `git status` there before committing: no `.env`, no `data/` files, no
    `.docx`.
 
 ## What this deployment is not

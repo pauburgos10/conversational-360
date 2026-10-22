@@ -103,7 +103,7 @@ TEXTS = [
     "They make time to help peers even when it is outside their objectives, and that lifted the whole team in Q2.",
     "Under delivery pressure the tone gets blunt, which lands badly with people who do not know them well.",
     "They keep the mood constructive through difficult stretches, which mattered during the November crunch.",
-    "Ana Torres and I paired on this; you can reach me at ana.torres@pluralit.com if you need detail.",
+    "Ana Torres and I paired on this; you can reach me at ana.torres@pluralit.example if you need detail.",
     "As their only direct report I see this constantly, and FEAT-4412 was a clear example of it going well.",
     "Good.",
     "They are reliable and strong overall, a real asset to have around.",

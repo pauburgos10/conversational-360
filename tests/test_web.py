@@ -219,8 +219,8 @@ def test_the_echo_shows_what_was_written_and_warns_about_the_subject_copy(client
         r = reply(client, ballot_id, "2")
 
     r = reply(client, ballot_id,
-              "Ana Torres missed FEAT-231 and I chased her at ana@pluralit.com.")
-    assert "ana@pluralit.com" in r.text, "the rater must see what was actually saved"
+              "Ana Torres missed FEAT-231 and I chased her at ana@pluralit.example.")
+    assert "ana@pluralit.example" in r.text, "the rater must see what was actually saved"
     assert "will be removed from the copy" in r.text
     assert "removed before saving" not in r.text, "the old, now-false wording"
 
@@ -632,14 +632,14 @@ def test_editing_a_written_answer_keeps_it_and_re_scores_the_mask(client):
 
     client.post(f"/b/{ballot_id}/edit/answer",
                 data={"ref": "Q1",
-                      "text": "Ana Torres chased me at ana@pluralit.com over FEAT-231."},
+                      "text": "Ana Torres chased me at ana@pluralit.example over FEAT-231."},
                 follow_redirects=False)
 
     iv = Interview(ballot_id, "S1")
     stored = next(a for a in iv._app.get_state(iv._cfg).values["open_answers"]
                   if a["ref"] == "Q1")
     assert "Ana Torres" in stored["text"]
-    assert "ana@pluralit.com" in stored["text"]
+    assert "ana@pluralit.example" in stored["text"]
     assert set(stored["codes"]) >= {"NAME", "EMAIL", "TICKET"}
 
 

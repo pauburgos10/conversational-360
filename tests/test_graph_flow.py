@@ -202,10 +202,10 @@ def test_open_answers_keep_what_the_rater_wrote(driver, isolated_db):
     control. What `collect` still does is record which rules WILL fire when the
     subject's copy is rendered — see the codes assertion below.
     """
-    leaky = "Ana Torres flagged it in FEAT-4412, mail her at ana.torres@pluralit.com about the detail here"
+    leaky = "Ana Torres flagged it in FEAT-4412, mail her at ana.torres@pluralit.example about the detail here"
     final = driver(scripted(open_answer=leaky)).run(start())
     stored = " ".join(a["text"] for a in final["open_answers"])
-    assert "ana.torres@pluralit.com" in stored
+    assert "ana.torres@pluralit.example" in stored
     assert "Ana Torres" in stored
 
     # The preview the rater is shown before submitting, and the promise the
@@ -225,11 +225,11 @@ def test_the_persisted_row_keeps_the_original_and_masks_on_render(driver, isolat
     from poc import banks, config, reporting
     from poc.aggregation import rollup, suppression
 
-    leaky = "Reach me on ana.torres@pluralit.com if you want the full story about this delivery"
+    leaky = "Reach me on ana.torres@pluralit.example if you want the full story about this delivery"
     driver(scripted(open_answer=leaky)).run(start())
     data = store.fetch_round("R1", path=isolated_db)
 
-    assert any("pluralit.com" in row["text"] for row in data["open"]), \
+    assert any("pluralit.example" in row["text"] for row in data["open"]), \
         "the response store must keep the answer as written"
 
     rules, bank = config.rules(), banks.load_bank()
@@ -240,7 +240,7 @@ def test_the_persisted_row_keeps_the_original_and_masks_on_render(driver, isolat
     # The contact detail, not the name: the subject here IS "Ana Torres", and a
     # subject is named in their own report by design. Only the rater side is
     # protected — see `reporting.ANONYMITY_NOTE`.
-    assert "pluralit.com" not in subject_copy
+    assert "pluralit.example" not in subject_copy
 
 
 # ----------------------------------------------------------------- input handling

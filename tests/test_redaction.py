@@ -12,7 +12,7 @@ GAZ = {"Ana Torres", "Marcos Vidal"}
 
 
 @pytest.mark.parametrize("text,code", [
-    ("write to ana.torres@pluralit.com about it", CODE_EMAIL),
+    ("write to ana.torres@pluralit.example about it", CODE_EMAIL),
     ("call me on +34 611 222 333 tomorrow", CODE_PHONE),
     ("see https://notion.so/team/page for detail", CODE_URL),
     ("it was tracked in FEAT-4412 last month", CODE_TICKET),
@@ -49,9 +49,9 @@ def test_self_identifying_phrase_stops_at_the_clause_boundary():
 
 
 def test_findings_record_length_never_content():
-    result = redact("mail me at ana.torres@pluralit.com", GAZ)
+    result = redact("mail me at ana.torres@pluralit.example", GAZ)
     finding = next(f for f in result.findings if f.code == CODE_EMAIL)
-    assert finding.length == len("ana.torres@pluralit.com")
+    assert finding.length == len("ana.torres@pluralit.example")
     assert not hasattr(finding, "text")
     assert "ana.torres" not in str(finding)
 

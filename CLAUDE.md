@@ -12,7 +12,7 @@ short version a new session needs first.
   (`github.com/pauburgos10/conversational-360`, branch `main`).
 - **Pushing to `main` redeploys the demo HR is using.** Work on a branch and merge
   when ready.
-- The **client repo** (`gitlab.kdsoft.io`, project under `paula/conversational-360/`)
+- The **client repo** (the client's self-hosted GitLab)
   is a delivery copy and is **behind** this one. It gets updated later — see
   `DEPLOY.md`, "Delivering to the client repository". Do not treat it as current.
 - **Never edit** `Repos/cohort-03-sync-sessions/conversational-360` — an old,
@@ -162,7 +162,4 @@ Render configuration is in `DEPLOY.md`; `render.yaml` records the same settings.
 
 - `PLAN.md` §9.6: brief versus client on attribution, and re-consent for data
   collected under the previous consent copy.
-- Sync this repo into the client repo — four things to settle, listed in `DEPLOY.md`.
-- In the client repo's pushed history: the client compensation `.docx`
-  (`9b385ad`) and `data/invites.json` (`a7e3fce`). Raise with its administrator
-  before rewriting history.
+- Sync this repo into the client repo — three things to settle, listed in `DEPLOY.md`.

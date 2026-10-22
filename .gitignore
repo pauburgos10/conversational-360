@@ -30,3 +30,11 @@ data/reports/
 # Test-coverage output. Nothing in this project writes it; an empty copy came
 # across from the client repository's root and is ignored rather than kept.
 coverage/
+
+# --- source documents kept locally, never committed -------------------------
+# The client's compensation structure and the project brief sit beside the code
+# in the client repository, to be read, never committed. Kept here too so a
+# sync cannot drop the rule.
+#
+# To publish one deliberately, delete this rule and `git add` the file you mean.
+*.docx

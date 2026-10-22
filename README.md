@@ -380,7 +380,7 @@ Nine rule families: `EMAIL`, `PHONE`, `URL`, `HANDLE`, `TICKET`, `NAME`,
 `SELF_ID`, `ROLE`, `TEAM_SIZE`.
 
 ```python
-"Ana Torres missed FEAT-231; as their only direct report I chased her at ana@pluralit.com"
+"Ana Torres missed FEAT-231; as their only direct report I chased her at ana@pluralit.example"
 → "[NAME] missed [TICKET]; [SELF_ID]I chased her at [EMAIL]"
 ```
 
@@ -660,7 +660,7 @@ as a Blueprint if you use that flow, but a manually created Web Service does not
 read it, so keep the two in step by hand.
 
 > **This repository is the working copy, and it is what Render deploys.** The
-> client's GitLab (`gitlab.kdsoft.io`), which Render cannot connect to, receives a
+> client's self-hosted GitLab, which Render cannot connect to, receives a
 > copy for delivery and is currently behind. DEPLOY.md has the `rsync` command and
 > what to settle in that repo — a plain copy skips hidden files, and losing
 > `.gitignore` would publish `data/invites.json` and its email addresses.
